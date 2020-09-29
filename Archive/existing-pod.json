@@ -1,0 +1,519 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "environment": {
+            "type": "string",
+            "allowedValues": [
+                "SBX",
+                "DEV",
+                "PRD",
+                "WVD"
+            ],
+            "defaultValue":"SBX"
+        },
+        "location": {
+            "type": "string",
+            "defaultValue":"[resourceGroup().location]"
+        },
+        "persona":{
+            "type": "string",
+            "defaultValue":"DEV"
+        },
+        "AzDevOpsSPN": {
+            "type": "string",
+            "defaultValue":"f303d02d-7596-421d-953d-1735ff2ca8e6"
+        },
+        "workspaceId": {
+            "type": "string",
+            "defaultValue":"/subscriptions/1965c25a-b7fd-48b5-a393-c9e785c1c4d9/resourcegroups/azureminilab-la/providers/microsoft.operationalinsights/workspaces/azureminilab2019"
+        },
+        "VNETName": {
+            "type": "string",
+            "defaultValue":"wvdspring-vnet"
+        },
+        "VNETName-green":{
+            "type": "string",
+            "defaultValue": "vnet_ca_central"
+            },
+
+        "VNETRG-green":{
+            "type": "string",
+            "defaultValue": "azure144"
+        },
+        "VNETRG": {
+            "type": "string",
+            "defaultValue":"Azureminilab-VNET"
+        },
+        "addressPrefix": {
+            "type": "string",
+            "defaultValue":"192.168.0.128/28"
+        },
+
+        "addressPrefix-green": {
+            "type": "string",
+            "defaultValue":"10.0.2.0/28"
+        },
+        "_artifactsLocation": {
+            "type": "string",
+            "defaultValue": "https://azminlandevops.blob.core.windows.net/"
+        },
+        "artifactsLocationSasToken": {
+            "type": "securestring"
+        }
+
+    },
+    "functions": [],
+    "variables": {
+        "templateURI": "[concat(parameters('_artifactsLocation'),'templates/arm-templates/')]",
+        "regionCode": {
+            "canadacentral":"CANC",
+            "canadaeast":"CAEA",
+            "eastus2":"USE2",
+            "centralus":"USN"
+        },
+        "subnetName": "[concat('SUB-WVD-',parameters('persona'),'-',variables('unique_string'))]",
+        "unique_string": "[take(uniqueString(resourceGroup().id),3)]",
+        "subscriptionId": "[subscription().subscriptionId]",
+        "resourceGroupName": "[resourceGroup().name]",
+        "keyVaultName":"[concat(parameters('environment'),'-',variables('regionCode')[parameters('location')],'-WVD-',parameters('persona'),'-',variables('unique_string'),'-KV')]",
+        "blue-subnetID":"[concat(resourceId(parameters('VNETRG'),'Microsoft.Network/virtualNetworks',parameters('VNETName')),'/subnets/',variables('subnetName'))]",
+        "green-subnetID":"[concat(resourceId(parameters('VNETRG-green'),'Microsoft.Network/virtualNetworks',parameters('VNETName-green')),'/subnets/',variables('subnetName'))]",
+        "netapp-blue":"[concat(parameters('environment'),'-NetAppVol-BLUE',parameters('persona'),'-',variables('unique_string'),'-profiles')]",
+        "netapp-green":"[concat(parameters('environment'),'-NetAppVol-GREEN',parameters('persona'),'-',variables('unique_string'),'-profiles')]",
+        "subnetName-deployment-blue": "[concat('BLUE-subnet-for-WVD-',parameters('persona'),'-',variables('unique_string'))]",
+        "subnetName-deployment-green": "[concat('BLUE-subnet-for-WVD-',parameters('persona'),'-',variables('unique_string'))]",
+        "secrets-deployment": "[concat('secrets-for-WVD-',parameters('persona'),'-',variables('unique_string'))]",
+        "wks-deployment":"[concat('WVD-WKS-',parameters('persona'),'-',variables('unique_string'))]",
+        "blue-pod-container-deployment":"[concat('WVD-POD-Container-BLUE',parameters('persona'),'-',variables('unique_string'))]",
+        "green-pod-container-deployment":"[concat('WVD-POD-Container-GREEN',parameters('persona'),'-',variables('unique_string'))]",
+        "user-pod-container-blue-deployment": "[concat('WVD-POD-Containers-BLUE-UsersAssignmt',parameters('persona'),'-',variables('unique_string'))]",
+        "user-pod-container-green-deployment": "[concat('WVD-POD-Containers-GREEN-UsersAssignmt',parameters('persona'),'-',variables('unique_string'))]",
+        "wvd_location":"eastus2",
+        "wks":"[concat(parameters('environment'),'-WKS-',parameters('persona'),'-',variables('unique_string'))]",
+        "appgrp_blue":"[concat(parameters('environment'),'-AppGroup-',parameters('persona'),'-',variables('unique_string'),'-BLUE')]",
+        "appgrp_green":"[concat(parameters('environment'),'-AppGroup-',parameters('persona'),'-',variables('unique_string'),'-GREEN')]",
+        "hostpool_blue":"[concat(parameters('environment'),'-HostPool-',parameters('persona'),'-',variables('unique_string'),'-BLUE')]",
+        "hostpool_green":"[concat(parameters('environment'),'-HostPool-',parameters('persona'),'-',variables('unique_string'),'-GREEN')]",
+        "user-group-blue": [ {
+                    "name": "E95@azureminilab.com",
+                    "principalId": "7a968489-417d-4fec-813b-aa07e9e5e747"
+                } ],
+        "user-group-green": [ {
+                    "name": "e01@azureminilab.com",
+                    "principalId": "e62eb52c-9974-4796-9a10-47d8e781e60b"
+                } ]
+    },
+    "resources": [
+        //Deploy Key Vault for Pod. 
+                {
+            "type": "Microsoft.Resources/deployments",
+            "apiVersion": "2020-06-01",
+            "name": "[variables('keyVaultName')]",
+            "resourceGroup": "[resourceGroup().name]",
+            "properties": {
+                "mode": "Incremental",
+                "parameters": {
+                    "keyVaultName": {
+                        "value": "[variables('keyVaultName')]"
+                    },
+                    "neworExistingKeyVault": {
+                        "value":"newKeyVault"
+                    },
+                    "AzDevOpsSPN": {
+                        "value":"[parameters('AzDevOpsSPN')]"
+                    },
+                    "secretsObject": {
+                        "value": {
+                        "secrets": [
+                            {
+                            "secretName":"admin-account-password",
+                            "secretValue":"!R37fallacy1505",
+                            "contentType":"secretValue"
+                            },
+                            {
+                            "secretName":"ou-path",
+                            "secretValue":"",
+                            "contentType":"secretValue"
+                            },
+                            {
+                            "secretName":"domain",
+                            "secretValue":"azureminilab.com",
+                            "contentType":"secretValue"
+                            },
+                            {
+                            "secretName":"admin-account-user",
+                            "secretValue":"azadmin@azureminilab.com",
+                            "contentType":"secretValue"
+                            }  
+                        ]
+
+                        }
+                    },
+                    "workspaceId": {
+                    "value": "[parameters('workspaceId')]"
+                    }
+                },
+                "templateLink": {
+                    "uri": "[concat(variables('templateURI'),'create-keyvault.json',parameters('artifactsLocationSasToken'))]",
+                    "contentVersion": "1.0.0.0"
+                }
+            }
+                },
+        //Deploy BLUE subnet for WVD VMs 
+                      {
+            "type": "Microsoft.Resources/deployments",
+            "apiVersion": "2020-06-01",
+            "name": "[variables('subnetName-deployment-blue')]",
+            "resourceGroup": "[parameters('VNETRG')]",
+            "properties": {
+                "mode": "Incremental",
+                "parameters": {
+                    "newSubnetAddressPrefix": {
+                        "value": "[parameters('addressPrefix')]"
+                    },
+                    "existingVNETName": {
+                        "value":"[parameters('VNETName')]"
+                    },
+                    "newSubnetName": {
+                        "value":"[variables('subnetName')]"
+                    }
+                },
+                "templateLink": {
+                    "uri": "[concat(variables('templateURI'),'vnet-add-subnet.json',parameters('artifactsLocationSasToken'))]",
+                    "contentVersion": "1.0.0.0"
+                }
+            }
+        },
+
+                //Deploy GREEN subnet for WVD VMs 
+                      {
+            "type": "Microsoft.Resources/deployments",
+            "apiVersion": "2020-06-01",
+            "name": "[variables('subnetName-deployment-green')]",
+            "resourceGroup": "[parameters('VNETRG-green')]",
+            "properties": {
+                "mode": "Incremental",
+                "parameters": {
+                    "newSubnetAddressPrefix": {
+                        "value": "[parameters('addressPrefix-green')]"
+                    },
+                    "existingVNETName": {
+                        "value":"[parameters('VNETName-green')]"
+                    },
+                    "newSubnetName": {
+                        "value":"[variables('subnetName')]"
+                    }
+                },
+                "templateLink": {
+                    "uri": "[concat(variables('templateURI'),'vnet-add-subnet.json',parameters('artifactsLocationSasToken'))]",
+                    "contentVersion": "1.0.0.0"
+                }
+            }
+        },
+
+        // Deploy NetApp Volume
+        // {Insert deployment here}
+
+    // Add secrets to Key Vault - input parameters for the WVD deployment: Blue and Green. 
+                              {
+            "type": "Microsoft.Resources/deployments",
+            "apiVersion": "2020-06-01",
+            "name": "[variables('secrets-deployment')]",
+            "resourceGroup": "[resourceGroup().name]",
+            "dependsOn": [
+                "[variables('subnetName-deployment-green')]",
+                "[variables('subnetName-deployment-blue')]",
+                "[variables('keyVaultName')]"
+            ],
+            "properties": {
+                "mode": "Incremental",
+                "parameters": {
+                    "keyVaultName": {
+                        "value": "[variables('keyVaultName')]"
+                    },
+                    "AzDevOpsSPN": {
+                        "value":"[parameters('AzDevOpsSPN')]"
+                    },
+                    "secretsObject": {
+                        "value": {
+                        "secrets":[
+                            {
+                            "secretName": "blue-subnet-id",
+                            "secretValue": "[variables('blue-subnetID')]"
+                            },
+                            {
+                            "secretName": "green-subnet-id",
+                            "secretValue": "[variables('green-subnetID')]"
+                            },
+
+                            {
+                              "secretName": "wks",
+                              "secretValue": "[variables('wks')]"  
+                            },
+                            {
+                                "secretName":"app-group-blue",
+                                "secretValue": "[variables('appgrp_blue')]"
+                            },
+                            {
+                                "secretName":"app-group-green",
+                                "secretValue": "[variables('appgrp_green')]"
+                            },
+                            {
+                                "secretName": "host-pool-blue",
+                                "secretValue": "[variables('hostpool_blue')]"
+                            },
+                            {
+                                "secretName": "host-pool-green",
+                                "secretValue": "[variables('hostpool_green')]"
+                            },
+                            {
+                                "secretName": "netapp-blue",
+                                "secretValue": "[variables('netapp-blue')]"
+                            },
+                            {
+                                "secretName": "netapp-green",
+                                "secretValue": "[variables('netapp-green')]"
+                            },
+
+                            {
+                                "secretName": "active-host-pool",
+                                "secretValue":"[variables('hostpool_blue')]"
+                            }
+                                ]
+                        }
+                    }
+                },
+                "templateLink": {
+                    "uri": "[concat(variables('templateURI'),'add-secrets.json',parameters('artifactsLocationSasToken'))]",
+                    "contentVersion": "1.0.0.0"
+                }
+            }
+        },
+    // Deploy WVD Workspace
+           { "type": "Microsoft.Resources/deployments",
+            "apiVersion": "2020-06-01",
+            "name": "[variables('wks-deployment')]",
+            "resourceGroup": "[resourceGroup().name]",
+            "dependsOn": [
+                "[variables('keyVaultName')]",
+                "[variables('secrets-deployment')]"
+            ],
+            "properties": {
+                "mode": "Incremental",
+                "parameters": {
+                    "workspaceName": {
+                            "reference": {
+                            "keyVault": {
+                                "id": "[resourceId(variables('subscriptionId'), variables('resourceGroupName'), 'Microsoft.KeyVault/vaults', variables('keyVaultName'))]"
+                            },
+                            "secretName": "wks"
+                        }
+                    },
+                    "location": {
+                    "value":"[variables('wvd_location')]"
+                    }
+                },
+                "templateLink": {
+                    "uri": "[concat(variables('templateURI'),'new-workspace.json',parameters('artifactsLocationSasToken'))]",
+                    "contentVersion": "1.0.0.0"
+                }
+            
+        }
+           },
+
+    //Deploy BLUE POD Container (Host Pool and App Group)
+           { "type": "Microsoft.Resources/deployments",
+            "apiVersion": "2020-06-01",
+            "name": "[variables('blue-pod-container-deployment')]",
+            "resourceGroup": "[resourceGroup().name]",
+            "dependsOn": [
+                "[variables('wks-deployment')]"
+            ],
+            "properties": {
+                "mode": "Incremental",
+                "parameters": {
+                    "hostpoolName":{
+                            "reference": {
+                            "keyVault": {
+                                "id": "[resourceId(variables('subscriptionId'), variables('resourceGroupName'), 'Microsoft.KeyVault/vaults', variables('keyVaultName'))]"
+                            },
+                            "secretName": "host-pool-blue"
+                        }
+                    },
+                    "appGroupName": {
+                            "reference": {
+                            "keyVault": {
+                                "id": "[resourceId(variables('subscriptionId'), variables('resourceGroupName'), 'Microsoft.KeyVault/vaults', variables('keyVaultName'))]"
+                            },
+                            "secretName": "app-group-blue"
+                        }
+                    },
+                    "workspaceName": {
+                            "reference": {
+                            "keyVault": {
+                                "id": "[resourceId(variables('subscriptionId'), variables('resourceGroupName'), 'Microsoft.KeyVault/vaults', variables('keyVaultName'))]"
+                            },
+                            "secretName": "wks"
+                        }
+                    },
+                    "location": {
+                    "value":"[variables('wvd_location')]"
+                    },
+                    "addToWorkspace":{
+                        "value": true
+                    },
+                    "hostpoolType": {
+                        "value":"Pooled"
+                    },
+                    "personalDesktopAssignmentType": {
+                        "value": ""
+                    },
+                    "loadBalancerType": {
+                        "value":"BreadthFirst"
+                    },
+                    "maxSessionLimit": {
+                        "value": 400
+                    }
+                },
+                "templateLink": {
+                    "uri": "[concat(variables('templateURI'),'new-host-pool.json',parameters('artifactsLocationSasToken'))]",
+                    "contentVersion": "1.0.0.0"
+                }
+            
+        }
+           },
+
+    //Deploy GREEN POD Container (Host Pool and App Group)
+               { "type": "Microsoft.Resources/deployments",
+            "apiVersion": "2020-06-01",
+            "name": "[variables('green-pod-container-deployment')]",
+            "resourceGroup": "[resourceGroup().name]",
+            "dependsOn": [
+                "[variables('blue-pod-container-deployment')]"
+            ],
+            "properties": {
+                "mode": "Incremental",
+                "parameters": {
+                    "hostpoolName":{
+                            "reference": {
+                            "keyVault": {
+                                "id": "[resourceId(variables('subscriptionId'), variables('resourceGroupName'), 'Microsoft.KeyVault/vaults', variables('keyVaultName'))]"
+                            },
+                            "secretName": "host-pool-green"
+                        }
+                    },
+                    "appGroupName": {
+                            "reference": {
+                            "keyVault": {
+                                "id": "[resourceId(variables('subscriptionId'), variables('resourceGroupName'), 'Microsoft.KeyVault/vaults', variables('keyVaultName'))]"
+                            },
+                            "secretName": "app-group-green"
+                        }
+                    },
+                    "workspaceName": {
+                            "reference": {
+                            "keyVault": {
+                                "id": "[resourceId(variables('subscriptionId'), variables('resourceGroupName'), 'Microsoft.KeyVault/vaults', variables('keyVaultName'))]"
+                            },
+                            "secretName": "wks"
+                        }
+                    },
+                    "location": {
+                    "value":"[variables('wvd_location')]"
+                    },
+                    "addToWorkspace":{
+                        "value": true
+                    },
+                    "hostpoolType": {
+                        "value":"Pooled"
+                    },
+                    "personalDesktopAssignmentType": {
+                        "value": ""
+                    },
+                    "loadBalancerType": {
+                        "value":"BreadthFirst"
+                    },
+                    "maxSessionLimit": {
+                        "value": 400
+                    }
+                },
+                "templateLink": {
+                    "uri": "[concat(variables('templateURI'),'new-host-pool.json',parameters('artifactsLocationSasToken'))]",
+                    "contentVersion": "1.0.0.0"
+                }
+            
+        }
+           },
+
+           //Create user assignments for the Application groups (blue and green)
+
+            { "type": "Microsoft.Resources/deployments",
+            "apiVersion": "2020-06-01",
+            "name": "[variables('user-pod-container-blue-deployment')]",
+            "resourceGroup": "[resourceGroup().name]",
+            "dependsOn": [
+                "[variables('green-pod-container-deployment')]"
+            ],
+            "properties": {
+                "mode": "Incremental",
+                "parameters": {
+                    "appGroupName": {
+                            "reference": {
+                            "keyVault": {
+                                "id": "[resourceId(variables('subscriptionId'), variables('resourceGroupName'), 'Microsoft.KeyVault/vaults', variables('keyVaultName'))]"
+                            },
+                            "secretName": "app-group-blue"
+                        }
+                    },
+                    "location": {
+                    "value":"[variables('wvd_location')]"
+                    },
+                    "roleAssignments":{
+                        "value": "[variables('user-group-blue')]"
+                    }
+                },
+                "templateLink": {
+                    "uri": "[concat(variables('templateURI'),'user-assignment.json',parameters('artifactsLocationSasToken'))]",
+                    "contentVersion": "1.0.0.0"
+                }
+            
+        }
+           },
+           
+            { "type": "Microsoft.Resources/deployments",
+            "apiVersion": "2020-06-01",
+            "name": "[variables('user-pod-container-green-deployment')]",
+            "resourceGroup": "[resourceGroup().name]",
+            "dependsOn": [
+                "[variables('green-pod-container-deployment')]"
+            ],
+            "properties": {
+                "mode": "Incremental",
+                "parameters": {
+                    "appGroupName": {
+                            "reference": {
+                            "keyVault": {
+                                "id": "[resourceId(variables('subscriptionId'), variables('resourceGroupName'), 'Microsoft.KeyVault/vaults', variables('keyVaultName'))]"
+                            },
+                            "secretName": "app-group-green"
+                        }
+                    },
+                    "location": {
+                    "value":"[variables('wvd_location')]"
+                    },
+                    "roleAssignments":{
+                        "value": "[variables('user-group-green')]"
+                    }
+                },
+                "templateLink": {
+                    "uri": "[concat(variables('templateURI'),'user-assignment.json',parameters('artifactsLocationSasToken'))]",
+                    "contentVersion": "1.0.0.0"
+                }
+            
+        }
+           }
+    
+    ],
+    "outputs": {}
+}

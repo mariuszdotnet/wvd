@@ -1,0 +1,25 @@
+parameters:
+  - name: personaId
+    type: string
+  - name: pods
+    type: object
+  - name: NetAppResourceGroup
+    type: string
+  - name: targetRegion
+    type: string
+  - name: regionCode
+    type: string
+
+stages:
+  - stage: Deploy_Persona
+    displayName: Deploy Persona ${{ parameters.personaId }}
+    jobs:
+      - template: deploy-template.yml
+        parameters:
+          resourceGroupName: ${{ parameters.NetAppResourceGroup }}
+          location: ${{ parameters.targetRegion }}
+          templateFile: arm-templates/New-NetApp-CapacityPool.json
+          parameterArray:
+            - netAppAccounts_name $(NetAppAccountName)
+            - netAppAccounts_pool ${{ parameters.personaId }}-${{ parameters.regionCode }}-CPOOL
+

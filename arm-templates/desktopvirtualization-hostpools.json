@@ -1,0 +1,53 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "hostpool-name": {
+            "type": "string",
+            "metadata": {
+                "description": "The name of the Hostpool."
+            },
+            "defaultValue": "poolA"
+        },
+        "hostpool-location": {
+            "type": "string",
+            "metadata": {
+                "description": "The region the hostpool is deployed in."
+            },
+            "defaultValue": "eastus2"
+        },
+        "utc-value": {
+            "type": "string",
+            "metadata": {
+                "description": "Todays date in UTC used to generate expirationTime for registration Token."
+            },
+            "defaultValue": "[utcNow('u')]"
+        }       
+    },
+    "functions": [],
+    "variables": {
+        // The expiration must be <30 days from today.  
+        "registration-token-expiration-time": "[dateTimeAdd(parameters('utc-value'), 'P7D')]"
+    },
+    "resources": [
+        {
+            "name": "[parameters('hostpool-name')]",
+            "apiVersion": "2019-12-10-preview",
+            "type": "Microsoft.DesktopVirtualization/hostpools",
+            "location": "[parameters('hostpool-location')]",
+            "properties": {
+                "registrationInfo": {
+                    "expirationTime": "[variables('registration-token-expiration-time')]",
+                    "token": null,
+                "registrationTokenOperation": "Update"
+                }
+            } 
+        }
+    ],
+    "outputs": {
+        "hostpooltoken": {
+            "type": "string",
+            "value": "[reference(parameters('hostpool-name')).registrationInfo.token]"
+        }
+    }
+}

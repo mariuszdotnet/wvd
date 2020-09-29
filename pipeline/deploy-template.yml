@@ -1,0 +1,62 @@
+parameters:
+  - name: resourceGroupName
+  - name: location
+  - name: templateFile
+  - name: parameterArray
+    type: object
+    default: []
+  - name: jobName
+    default: Deploy_ARM_Template
+  - name: preDeploySteps
+    type: stepList
+    default: []
+  - name: postDeploySteps
+    type: stepList
+    default: []
+
+jobs:
+  - job: ${{ parameters.jobName }}
+    displayName: Deploy ${{ parameters.templateFile }}
+    variables:
+      - template: vars.yml
+    steps:
+      - ${{ parameters.preDeploySteps }}
+      
+      - task: AzurePowerShell@4
+        name: Generate_SAS_Token
+        displayName: Generate SAS Token
+        inputs:
+          azureSubscription: ${{ variables.azureConnectionName }}
+          scriptType: inlineScript
+          azurePowerShellVersion: "LatestVersion"
+          inline: |
+            $startTime = Get-Date
+            $expiryTime = $startTime.AddMinutes(30)
+            Set-AzCurrentStorageAccount -ResourceGroupName "$(storageAccountResourceGroupName)" -Name "$(StorageAccountName)"
+            $token = New-AzStorageContainerSASToken -Name "templates" -ExpiryTime $expiryTime -Permission "r"
+            Write-Host "##vso[task.setvariable variable=token]$token"
+    
+      - task: AzureResourceGroupDeployment@2
+        name: Deploy_Template
+        displayName: Deploy Template to ${{ parameters.resourceGroupName }}
+        inputs:
+          azureSubscription: ${{ variables.azureConnectionName }}
+          resourceGroupName: ${{ parameters.resourceGroupName }}
+          location: ${{ parameters.location }}
+          templateLocation: URL of the file
+          csmFileLink: "https://$(storageAccountName).blob.core.windows.net/templates/${{parameters.templateFile}}$(token)"
+          overrideParameters: -${{ join(' -', parameters.parameterArray) }}
+          deploymentOutputs: OutputsJson
+    
+      - pwsh: |
+          Write-Host $Env:OUTPUT_JSON
+          $outputs = $Env:OUTPUT_JSON | ConvertFrom-Json
+          $outputs.PSObject.Properties | ForEach-Object {
+            Write-Host "$($_.Name):$($_.Value.value)"
+            Write-Host "##vso[task.setvariable variable=$($_.Name);isOutput=true]$($_.Value.value)" 
+          }
+        name: Output
+        env:
+          OUTPUT_JSON: $(OutputsJson)
+
+      - ${{ parameters.postDeploySteps }}

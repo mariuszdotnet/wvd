@@ -1,0 +1,444 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "keyVaultName": {
+            "type": "string"
+        },
+        "environment": {
+            "type": "string",
+            "defaultValue": "SBX"
+        },
+        "persona": {
+            "type": "string",
+            "defaultValue": "PR01"
+        },
+        "pod": {
+            "type": "string",
+            "defaultValue": "POD01"
+        },
+
+        "AzDevOpsSPN": {
+            "type": "string",
+            "defaultValue": "f303d02d-7596-421d-953d-1735ff2ca8e6"
+        },
+        "workspaceId": {
+            "type": "string"
+        },
+        "VNETName": {
+            "type": "string",
+            "defaultValue": "wvdspring-vnet"
+        },
+        "VNETRG": {
+            "type": "string",
+            "defaultValue": "Azureminilab-VNET"
+        },
+        "RegionCode": {
+            "type": "string",
+            "metadata": {
+                "description": "Region Code (CACN for Canada Central)"
+            },
+            "defaultValue": "CACN"
+        },
+        "NetAppResourceGroup": {
+            "type": "string",
+            "metadata": {
+                "description": "NetApp Account Resource Group"
+            }
+        },
+        "NetAppAccountName": {
+            "type": "string",
+            "metadata": {
+                "description": "NetApp Account Name"
+            }
+        },
+        "NetAppSubnetId": {
+            "type": "string",
+            "metadata": {
+                "description": "Subnet Resource ID to attach NetApp Volume"
+            }
+        },
+        "domain": {
+            "type": "string",
+            "metadata": {
+                "description": "AD Domain to join"
+            },
+            "defaultValue": "azureminilab.com"
+        },
+        "domainAdminAccount": {
+            "type": "string",
+            "metadata": {
+                "description": "Domain Admin Account"
+            },
+            "defaultValue": "azadmin@azureminilab.com"
+        },
+        "domainAdminPassword": {
+            "type": "securestring",
+            "metadata": {
+                "description": "Domain Admin Account Password"
+            },
+            "defaultValue": "!R37fallacy1505"
+        },
+        "domainOUPath": {
+            "type": "string",
+            "metadata": {
+                "description": "Domain Computers OU Path"
+            },
+            "defaultValue": "CN=Computers"
+        }
+    },
+    "functions": [],
+    "variables": {
+        "templateUri": "[deployment().properties.templateLink.uri]",
+        "sasToken": "[substring(variables('templateUri'), indexOf(variables('templateUri'), '?'))]",
+        "baseUri": "[substring(variables('templateUri'), 0, add(lastIndexOf(variables('templateUri'),'/'), 1))]",
+        "unique_string": "[take(uniqueString(resourceGroup().id),3)]",
+
+        "keyVault-template": "[concat(uri(variables('baseUri'), 'create-keyvault.json'), variables('sasToken'))]",
+        "secrets-template": "[concat(uri(variables('baseUri'), 'add-secrets.json'), variables('sasToken'))]",
+        "wks-template": "[concat(uri(variables('baseUri'), 'new-workspace.json'), variables('sasToken'))]",
+        "pod-template": "[concat(uri(variables('baseUri'), 'new-host-pool.json'), variables('sasToken'))]",
+        "netapp-volume-template": "[concat(uri(variables('baseUri'), 'new-NetApp-volume-2.json'), variables('sasToken'))]",
+
+        "fullPodId": "[concat(parameters('persona'),'-',parameters('pod'))]",
+        "subnetName": "[variables('fullPodId')]",
+
+        "subnetID": "[concat(resourceId(parameters('VNETRG'),'Microsoft.Network/virtualNetworks',parameters('VNETName')),'/subnets/',variables('subnetName'))]",
+        "netapp-capacity-name": "[concat(parameters('persona'),'-',parameters('RegionCode'),'-CPOOL')]",
+        "netapp-volume-name": "[concat(variables('fullPodId'),'-',parameters('RegionCode'),'-VOL')]",
+
+        "secrets-deployment": "[concat('secrets-for-WVD-',variables('fullPodId'),'-',variables('unique_string'))]",
+        "wks-deployment": "[concat('WVD-WKS-',variables('fullPodId'),'-',variables('unique_string'))]",
+        "blue-pod-container-deployment": "[concat('WVD-POD-Container-BLUE-',variables('fullPodId'),'-',variables('unique_string'))]",
+        "green-pod-container-deployment": "[concat('WVD-POD-Container-GREEN-',variables('fullPodId'),'-',variables('unique_string'))]",
+        "netapp-volume-deployment": "[concat('WVD-NetApp-Volume-',variables('fullPodId'),'-',variables('unique_string'))]",
+
+        "wvd_location": "eastus2",
+        "wks": "[concat(parameters('environment'),'-WKS-',variables('fullPodId'))]",
+        "appgrp_blue": "[concat(parameters('environment'),'-APG-',variables('fullPodId'),'-BLUE')]",
+        "appgrp_green": "[concat(parameters('environment'),'-APG-',variables('fullPodId'),'-GREEN')]",
+        "hostpool_blue": "[concat(parameters('environment'),'-HPL-',variables('fullPodId'),'-BLUE')]",
+        "hostpool_green": "[concat(parameters('environment'),'-HPL-',variables('fullPodId'),'-GREEN')]"
+    },
+    "resources": [
+        //Deploy Key Vault for Pod. 
+        {
+            "type": "Microsoft.Resources/deployments",
+            "apiVersion": "2020-06-01",
+            "name": "[parameters('keyVaultName')]",
+            "resourceGroup": "[resourceGroup().name]",
+            "properties": {
+                "mode": "Incremental",
+                "parameters": {
+                    "keyVaultName": {
+                        "value": "[parameters('keyVaultName')]"
+                    },
+                    "neworExistingKeyVault": {
+                        "value": "newKeyVault"
+                    },
+                    "AzDevOpsSPN": {
+                        "value": "[parameters('AzDevOpsSPN')]"
+                    },
+                    "secretsObject": {
+                        "value": {
+                            "secrets": [
+                                {
+                                    "secretName": "admin-account-password",
+                                    "secretValue": "[parameters('domainAdminPassword')]",
+                                    "contentType": "secretValue"
+                                },
+                                {
+                                    "secretName": "ou-path",
+                                    "secretValue": "[parameters('domainOUPath')]",
+                                    "contentType": "secretValue"
+                                },
+                                {
+                                    "secretName": "domain",
+                                    "secretValue": "[parameters('domain')]",
+                                    "contentType": "secretValue"
+                                },
+                                {
+                                    "secretName": "admin-account-user",
+                                    "secretValue": "[parameters('domainAdminAccount')]",
+                                    "contentType": "secretValue"
+                                }
+                            ]
+
+                        }
+                    },
+                    "workspaceId": {
+                        "value": "[parameters('workspaceId')]"
+                    }
+                },
+                "templateLink": {
+                    "uri": "[variables('keyVault-template')]",
+                    "contentVersion": "1.0.0.0"
+                }
+            }
+        },
+        // Deploy NetApp Volume
+        // {Insert deployment here}
+
+        // Add secrets to Key Vault - input parameters for the WVD deployment: Blue and Green. 
+        {
+            "type": "Microsoft.Resources/deployments",
+            "apiVersion": "2020-06-01",
+            "name": "[variables('secrets-deployment')]",
+            "resourceGroup": "[resourceGroup().name]",
+            "dependsOn": [
+                "[parameters('keyVaultName')]",
+                "[variables('netapp-volume-deployment')]"
+            ],
+            "properties": {
+                "mode": "Incremental",
+                "parameters": {
+                    "keyVaultName": {
+                        "value": "[parameters('keyVaultName')]"
+                    },
+                    "AzDevOpsSPN": {
+                        "value": "[parameters('AzDevOpsSPN')]"
+                    },
+                    "secretsObject": {
+                        "value": {
+                            "secrets": [
+                                {
+                                    "secretName": "blue-subnet-id",
+                                    "secretValue": "[variables('subnetID')]"
+                                },
+                                {
+                                    "secretName": "green-subnet-id",
+                                    "secretValue": "[variables('subnetID')]"
+                                },
+
+                                {
+                                    "secretName": "wks",
+                                    "secretValue": "[variables('wks')]"
+                                },
+                                {
+                                    "secretName": "app-group-blue",
+                                    "secretValue": "[variables('appgrp_blue')]"
+                                },
+                                {
+                                    "secretName": "app-group-green",
+                                    "secretValue": "[variables('appgrp_green')]"
+                                },
+                                {
+                                    "secretName": "host-pool-blue",
+                                    "secretValue": "[variables('hostpool_blue')]"
+                                },
+                                {
+                                    "secretName": "host-pool-green",
+                                    "secretValue": "[variables('hostpool_green')]"
+                                },
+                                {
+                                    "secretName": "netapp",
+                                    "secretValue": "[variables('netapp-volume-name')]"
+                                },
+                                {
+                                    "secretName": "netappshare",
+                                    "secretValue": "[concat('\\\\',reference(variables('netapp-volume-deployment')).outputs.NetAppVolumeFQDN.value,'\\',variables('netapp-volume-name'))]"
+                                },
+
+                                {
+                                    "secretName": "active-host-pool",
+                                    "secretValue": "[variables('hostpool_blue')]"
+                                }
+                            ]
+                        }
+                    }
+                },
+                "templateLink": {
+                    "uri": "[variables('secrets-template')]",
+                    "contentVersion": "1.0.0.0"
+                }
+            }
+        },
+        // Deploy WVD Workspace
+        {
+            "type": "Microsoft.Resources/deployments",
+            "apiVersion": "2020-06-01",
+            "name": "[variables('wks-deployment')]",
+            "resourceGroup": "[resourceGroup().name]",
+            "dependsOn": [
+                "[parameters('keyVaultName')]",
+                "[variables('secrets-deployment')]"
+            ],
+            "properties": {
+                "mode": "Incremental",
+                "parameters": {
+                    "workspaceName": { "value": "[variables('wks')]" },
+                    "location": {
+                        "value": "[variables('wvd_location')]"
+                    },
+                    "workspaceId": {
+                        "value": "[parameters('workspaceId')]"
+                    }
+                },
+                "templateLink": {
+                    "uri": "[variables('wks-template')]",
+                    "contentVersion": "1.0.0.0"
+                }
+
+            }
+        },
+
+        //Deploy BLUE POD Container (Host Pool and App Group)
+        {
+            "type": "Microsoft.Resources/deployments",
+            "apiVersion": "2020-06-01",
+            "name": "[variables('blue-pod-container-deployment')]",
+            "resourceGroup": "[resourceGroup().name]",
+            "dependsOn": [
+                "[variables('wks-deployment')]"
+            ],
+            "properties": {
+                "mode": "Incremental",
+                "parameters": {
+                    "hostpoolName": { "value": "[variables('hostpool_blue')]" },
+                    "appGroupName": { "value": "[variables('appgrp_blue')]" },
+                    "workspaceName": { "value": "[variables('wks')]" },
+                    "location": {
+                        "value": "[variables('wvd_location')]"
+                    },
+                    "addToWorkspace": {
+                        "value": true
+                    },
+                    "hostpoolType": {
+                        "value": "Pooled"
+                    },
+                    "workspaceId": {
+                        "value": "[parameters('workspaceId')]"
+                    },
+                    "personalDesktopAssignmentType": {
+                        "value": ""
+                    },
+                    "loadBalancerType": {
+                        "value": "BreadthFirst"
+                    },
+                    "maxSessionLimit": {
+                        "value": 400
+                    }
+                },
+                "templateLink": {
+                    "uri": "[variables('pod-template')]",
+                    "contentVersion": "1.0.0.0"
+                }
+
+            }
+        },
+        //Deploy GREEN POD Container (Host Pool and App Group)
+        {
+            "type": "Microsoft.Resources/deployments",
+            "apiVersion": "2020-06-01",
+            "name": "[variables('green-pod-container-deployment')]",
+            "resourceGroup": "[resourceGroup().name]",
+            "dependsOn": [
+                "[variables('blue-pod-container-deployment')]"
+            ],
+            "properties": {
+                "mode": "Incremental",
+                "parameters": {
+                    "hostpoolName": { "value": "[variables('hostpool_green')]" },
+                    "appGroupName": { "value": "[variables('appgrp_green')]" },
+                    "workspaceName": { "value": "[variables('wks')]" },
+                    "location": {
+                        "value": "[variables('wvd_location')]"
+                    },
+                    "addToWorkspace": {
+                        "value": true
+                    },
+                    "allApplicationGroupReferences": {
+                        "value": "[resourceId('Microsoft.DesktopVirtualization/applicationgroups/',variables('appgrp_blue') )]"
+                    },
+                    "hostpoolType": {
+                        "value": "Pooled"
+                    },
+                    "workspaceId": {
+                        "value": "[parameters('workspaceId')]"
+                    },
+                    "personalDesktopAssignmentType": {
+                        "value": ""
+                    },
+                    "loadBalancerType": {
+                        "value": "BreadthFirst"
+                    },
+                    "maxSessionLimit": {
+                        "value": 400
+                    }
+                },
+                "templateLink": {
+                    "uri": "[variables('pod-template')]",
+                    "contentVersion": "1.0.0.0"
+                }
+
+            }
+        },
+        {
+            "name": "[variables('netapp-volume-deployment')]",
+            "type": "Microsoft.Resources/deployments",
+            "resourceGroup": "[parameters('NetAppResourceGroup')]",
+            "apiVersion": "2019-10-01",
+            "properties": {
+                "mode": "Incremental",
+                "templateLink": {
+                    "uri": "[variables('netapp-volume-template')]",
+                    "contentVersion": "1.0.0.0"
+                },
+                "parameters": {
+                    "netAppAccounts_name": {
+                        "value": "[parameters('NetAppAccountName')]"
+                    },
+                    "netAppAccounts_pool": {
+                        "value": "[variables('netapp-capacity-name')]"
+                    },
+                    "netAppAccounts_volume": {
+                        "value": "[variables('netapp-volume-name')]"
+                    },
+                    "subnetId": {
+                        "value": "[parameters('NetAppSubnetId')]"
+                    }
+                }
+            }
+        }
+
+    ],
+    "outputs": {
+        "blue-subnetID": {
+            "type": "string",
+            "value": "[variables('subnetID')]"
+        },
+        "green-subnetID": {
+            "type": "string",
+            "value": "[variables('subnetID')]"
+        },
+        "workspaceName": {
+            "type": "string",
+            "value": "[variables('wks')]"
+        },
+        "workspaceResourceGroup": {
+            "type": "string",
+            "value": "[resourceGroup().name]"
+        },
+        "blue-hostPoolName": {
+            "type": "string",
+            "value": "[variables('hostpool_blue')]"
+        },
+        "green-hostPoolName": {
+            "type": "string",
+            "value": "[variables('hostpool_green')]"
+        },
+        "blue-appGroupName": {
+            "type": "string",
+            "value": "[variables('appgrp_blue')]"
+        },
+        "green-appGroupName": {
+            "type": "string",
+            "value": "[variables('appgrp_green')]"
+        },
+        "NetAppVolumeFQDN": {
+            "type": "string",
+            "value": "[reference(variables('netapp-volume-deployment')).outputs.NetAppVolumeFQDN.value]"
+        }
+
+    }
+}

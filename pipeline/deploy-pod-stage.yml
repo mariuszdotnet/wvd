@@ -1,0 +1,40 @@
+parameters:
+  - name: podId
+    default: ''
+  - name: personaId
+  - name: environment
+    default: WVD
+  - name: podResourceGroup
+  - name: targetRegion
+  - name: keyVaultName
+  - name: regionCode
+    type: string
+
+stages:
+  # Create new pod resource group and resources
+  - stage: DeployPod_${{ parameters.podId }}
+    dependsOn: Deploy_Persona
+    displayName: Deploy Pod ${{ parameters.podId }}
+    jobs:
+      - template: deploy-template.yml
+        parameters:
+          resourceGroupName: ${{ parameters.podResourceGroup }}
+          location: ${{ parameters.targetRegion }}
+          templateFile: arm-templates/new-pod.json
+          parameterArray:
+            - keyVaultName ${{ parameters.keyVaultName }}
+            - environment ${{ parameters.environment }}
+            - persona ${{ parameters.personaId }} 
+            - pod ${{ parameters.podId }} 
+            - workspaceId $(workspaceId) 
+            - VNETName $(VnetName) 
+            - VNETRG $(VnetResourceGroup)
+            - AzDevOpsSPN $(SPNApplicationId)
+            - RegionCode ${{ parameters.regionCode }}
+            - NetAppResourceGroup $(NetAppResourceGroup)
+            - NetAppAccountName $(NetAppAccountName)
+            - NetAppSubnetId $(NetAppSubnetId)
+            - domain $(domain)
+            - domainAdminAccount $(domainAdminAccount)
+            - domainAdminPassword $(domainAdminPassword)
+

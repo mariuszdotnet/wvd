@@ -1,0 +1,78 @@
+trigger:
+    - none
+  
+schedules:
+- cron: "0 4 * * *"
+  displayName: Daily Midnight Build
+  branches:
+    include:
+    - master
+  always: true
+
+pr:
+  - none
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  - name: HOSTPOOLRESOURCEGROUPNAME
+    value: tbd
+  - name: SESSIONHOSTRESOURCEGROUPNAME
+    value: aib-wvd-vmpool-rg
+  - name: LOCATION
+    value: canadacentral
+  - name: HostPoolLocation
+    value: canadacentral
+  - name: MAINTEMPLATEURI
+    value: https://azminlandevops.blob.core.windows.net/templates/arm-templates/main-template.json
+
+stages:
+# Create Image Stage
+- stage: Deploy_Session_Hosts
+  displayName: Deploy Session Hosts
+  jobs:
+    - job: Deploy_Session_Hosts_Job
+      displayName: Deploy Session Hosts Job
+      steps:
+      - checkout: self
+        displayName: Clone Git Repo
+
+      - task: Bash@3
+        displayName: List Git Repo Content
+        inputs:
+          targetType: 'inline'
+          script: 'ls -al'
+
+      - task: AzureCLI@2
+        displayName: Stage to Storage Account
+        inputs:
+          azureSubscription: 'AzDevOPS'
+          scriptType: 'bash'
+          scriptLocation: 'scriptPath'
+          scriptPath: 'uploadtoSA.sh'
+
+      - task: AzureCLI@2
+        displayName: Delete Resource Group
+        inputs:
+          azureSubscription: 'AzDevOPS'
+          scriptType: 'bash'
+          scriptLocation: 'inlineScript'
+          inlineScript: 'az group delete --verbose --name ${SESSIONHOSTRESOURCEGROUPNAME} --yes'
+
+      - task: AzureCLI@2
+        displayName: Create Resource Group 
+        inputs:
+          azureSubscription: 'AzDevOPS'
+          scriptType: 'bash'
+          scriptLocation: 'inlineScript'
+          inlineScript: az group create -n ${SESSIONHOSTRESOURCEGROUPNAME} -l ${LOCATION}
+
+      - task: AzureCLI@2
+        displayName: Create Host Pool
+        inputs:
+          azureSubscription: 'AzDevOPS'
+          scriptType: 'bash'
+          scriptLocation: 'scriptPath'
+          scriptPath: 'build-host-pool.sh'
+

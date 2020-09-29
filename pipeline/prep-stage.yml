@@ -1,0 +1,27 @@
+stages:
+  # Create Prep Deployment
+  - stage: Prep_Deployment
+    displayName: Prep Deployment
+    variables:
+      - template: vars.yml
+    jobs:
+      - job: Download_Repo
+        displayName: Download the Repo
+        steps:
+          - checkout: self
+            displayName: Clone Git Repo
+
+          - task: PowerShell@2
+            displayName: List Git Repo Content
+            inputs:
+              targetType: "inline"
+              script: "ls"
+
+          - task: AzureFileCopy@4
+            inputs:
+              azureSubscription: ${{ variables.azureConnectionName }}
+              SourcePath: '$(Build.Repository.LocalPath)\*'
+              Destination: "AzureBlob"
+              storage: $(storageAccountName)
+              ContainerName: "templates"
+              sasTokenTimeOutInMinutes: "240"

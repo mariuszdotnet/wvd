@@ -1,0 +1,97 @@
+trigger:
+  - none
+
+schedules:
+- cron: "0 4 * * *"
+  displayName: Daily Midnight Build
+  branches:
+    include:
+    - master
+  always: true
+
+pr:
+  - none
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  - name: IMAGERESORUCEGROUP
+    value: aib-sig-rg
+  - name: IMAGETEMPLATEFILENAME
+    value: image-template-win-10.json
+  - name: IMAGERESOURCENAME
+    value: 01-image-template-win-10-desktop
+
+stages:
+# Create Image Stage
+- stage: Create_Image_Stage
+  displayName: Create Image Stage
+  jobs:
+    - job: Create_Image_Job
+      displayName: Create Image Job
+      steps:
+      - checkout: self
+        displayName: Clone Git Repo
+
+      - task: Bash@3
+        displayName: List Git Repo Content
+        inputs:
+          targetType: 'inline'
+          script: 'ls -al'
+
+      - task: Bash@3
+        displayName: Configure Image Template
+        inputs:
+          filePath: '00-configure-image-template.sh'
+
+      - task: Bash@3
+        displayName: Log Image Template
+        inputs:
+          targetType: 'inline'
+          script: 'cat ${IMAGETEMPLATEFILENAME}'
+
+      - task: AzureCLI@2
+        displayName: Create Image Template
+        inputs:
+          azureSubscription: 'AzDevOPS'
+          scriptType: 'bash'
+          scriptLocation: 'scriptPath'
+          scriptPath: '01-create-image-template.sh'
+
+      - task: AzureCLI@2
+        displayName: Build Image
+        inputs:
+          azureSubscription: 'AzDevOPS'
+          scriptType: 'bash'
+          scriptLocation: 'scriptPath'
+          scriptPath: '02-build-image.sh'
+
+# Test Image Stage
+- stage: Test_Image_Stage
+  displayName: Test Image Stage
+  jobs:
+    - job: Test_Image_Job
+      displayName: Test Image Job
+      steps:
+      - task: Bash@3
+        displayName: Deploy VM from Image
+        inputs:
+          targetType: 'inline'
+          script: 'echo "TODO: Write script to deploy VM based on built image to test its deployment"'
+
+# Cleanup Resources Stage
+- stage: Cleanup_Resources_Stage
+  displayName: Cleanup Resources Stage
+  #dependsOn: []
+  jobs:
+    - job: Cleanup_Resources_Job
+      displayName: Cleanup Resources Job
+      steps:
+      - task: AzureCLI@2
+        displayName: Delete Image Template
+        inputs:
+          azureSubscription: 'AzDevOPS'
+          scriptType: 'bash'
+          scriptLocation: 'scriptPath'
+          scriptPath: '03-delete-image-template.sh'

@@ -1,0 +1,82 @@
+
+parameters:
+  - name: personaId
+    displayName: Persona ID
+    type: string
+
+  - name: personaName
+    displayName: Persona Name
+    type: string
+
+  - name: primaryRegion
+    displayName: Primary Region
+    type: string
+    values:
+      - canadacentral
+      - canadaeast
+      - westus2
+    default: canadacentral
+
+  - name: primaryRegionCode
+    displayName: Primary Region Code
+    type: string
+    values:
+      - CACN
+      - CAET
+      - WUS2
+    default: CACN
+
+  - name: image
+    displayName: Persona Image
+    type: string
+
+  - name: pods
+    displayName: Pods
+    type: object
+    default:
+      - podId: POD01
+        numberOfVMs: 2
+      - podId: POD02
+        numberOfVMs: 2
+  
+  - name: targetContainer
+    displayName: Target Container
+    type: string
+    default: blue
+    values:
+      - BLUE
+      - GREEN
+
+  - name: environment
+    displayName: Environment
+    type: string
+    default: WVD
+
+  - name: swapUsers
+    type: boolean
+    default: true
+
+stages:
+  - template: prep-stage.yml
+  - template: persona-stage.yml
+    parameters:
+      personaId: ${{ parameters.personaId }}
+      pods: ${{ parameters.pods}}
+      NetAppResourceGroup: $(NetAppResourceGroup)
+      targetRegion: ${{ parameters.primaryRegion }}
+      regionCode: ${{ parameters.primaryRegionCode }}
+  - ${{ each pod in parameters.pods }}:
+    - template: pod-template.yml
+      parameters:
+        personaId: ${{ parameters.personaId }}
+        personaName: ${{ parameters.personaName }}
+        image: ${{ parameters.image }}
+        podId: ${{ pod.podId }}
+        numberOfVMs: ${{ pod.numberOfVMs }}
+        podDiscription: ${{ format('{0} {1}', parameters.personaName, pod.podId)}}
+        podResourceGroup: ${{ format('{0}-RGP-{1}-{2}', parameters.environment, parameters.personaId, pod.podId)}}
+        targetRegion: ${{ parameters.primaryRegion }}
+        targetContainer: ${{ parameters.targetContainer }}
+        regionCode: ${{ parameters.primaryRegionCode }}
+        environment: ${{ parameters.environment }}
+        swapUsers: ${{ parameters.swapUsers }}

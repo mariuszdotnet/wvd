@@ -1,0 +1,239 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "KeyVaultLocation": {
+            "type": "string",
+            "metadata": {
+                "description": "The location of the keyvault."
+            }
+        },
+        "environment": {
+            "type": "string",
+            "defaultValue": "SBX"
+        },
+        "utc-value": {
+            "type": "string",
+            "defaultValue": "[utcNow()]"
+        },
+        "PersonaName": {
+            "type": "string",
+            "defaultValue": "DEV"
+        },
+        "workspaceId": {
+            "type": "string",
+            "defaultValue": "/subscriptions/1965c25a-b7fd-48b5-a393-c9e785c1c4d9/resourcegroups/azureminilab-la/providers/microsoft.operationalinsights/workspaces/azureminilab2019"
+        },
+        "_artifactsLocation": {
+            "type": "string",
+            "defaultValue": "https://azminlandevops.blob.core.windows.net/"
+        },
+        "artifactsLocationSasToken": {
+            "type": "securestring"
+        }
+    },
+    "functions": [],
+    "variables": {
+        "resourceGroup": "[replace(string(resourceGroup().name),'\"', '\\\"')]",
+        "regionCode": {
+            "canadacentral": "CANC",
+            "canadaeast": "CAEA",
+            "eastus2": "USE2",
+            "centralus": "USN",
+            "westus2": "USW2"
+        },
+        "tenantId": "[subscription().tenantId]",
+        "key-vault-deployment-name": "[concat('add-key-vault-',parameters('utc-value'))]",
+        "keyVaultName": "[concat(parameters('environment'),'-',variables('regionCode')[parameters('KeyVaultlocation')],'-DES-',parameters('PersonaName'),'-KV')]",
+        "identityName": "[concat(parameters('PersonaName'),'-diskencrypt-mi')]",
+        "bootstrapRoleAssignmentId": "[guid(concat(resourceGroup().id, 'contributor', variables('identityName')))]",
+        "contributorRoleDefinitionId": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Authorization/roleDefinitions/', 'b24988ac-6180-42a0-ab88-20f7382dd24c')]",
+        "disk-encrypt-set-deployment-name": "[concat(parameters('environment'), '-', parameters('PersonaName'),'-disk-encrypt-set-',parameters('utc-value'))]",
+        "disk-encrypt-key-name": "[concat(parameters('environment'), '-', parameters('PersonaName'),'-',variables('regionCode')[parameters('KeyVaultlocation')],'-DES')]",
+        "templateURI": "[concat(parameters('_artifactsLocation'),'templates/arm-templates/')]"
+    },
+    "resources": [
+        // Create Key Vault
+
+        {
+            "type": "Microsoft.Resources/deployments",
+            "apiVersion": "2020-06-01",
+            "name": "[variables('key-vault-deployment-name')]",
+            "dependsOn": [ "[variables('identityName')]" ],
+            "resourceGroup": "[resourceGroup().name]",
+            "properties": {
+                "mode": "Incremental",
+                "parameters": {
+                    "keyVaultName": {
+                        "value": "[variables('keyVaultName')]"
+                    },
+                    "neworExistingKeyVault": {
+                        "value": "newKeyVault"
+                    },
+                    "location": {
+                        "value": "[parameters('KeyVaultLocation')]"
+                    },
+                    "AzDevOpsSPN": {
+                        "value": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('identityName')), '2018-11-30').principalId]"
+                    },
+                    "secretsObject": {
+                        "value": {
+                            "secrets": [
+                                {
+                                    "secretName": "[concat(parameters('PersonaName'),'-DES-KV')]",
+                                    "secretValue": "[variables('keyVaultName')]"
+                                }
+                            ]
+                        }
+                    },
+                    "workspaceId": {
+                        "value": "[parameters('workspaceId')]"
+                    }
+                },
+                "templateLink": {
+                    "uri": "[concat(variables('templateURI'),'create-keyvault.json',parameters('artifactsLocationSasToken'))]",
+                    "contentVersion": "1.0.0.0"
+                }
+            }
+        },
+
+        // Create user assigned identity for deployment script and assign contributor role over the rgp
+        {
+            "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
+            "apiVersion": "2018-11-30",
+            "name": "[variables('identityName')]",
+            "location": "[resourceGroup().location]"
+        },
+        {
+            "type": "Microsoft.Authorization/roleAssignments",
+            "apiVersion": "2018-09-01-preview",
+            "name": "[variables('bootstrapRoleAssignmentId')]",
+            "dependsOn": [
+                "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('identityName'))]"
+            ],
+            "properties": {
+                "roleDefinitionId": "[variables('contributorRoleDefinitionId')]",
+                "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('identityName')), '2018-11-30').principalId]",
+                "scope": "[resourceGroup().id]",
+                "principalType": "ServicePrincipal"
+            }
+        },
+
+        // Deployment script to generate key. Add to Key Vault. Create disk encryption set. Set the permissions.
+
+        {
+            "type": "Microsoft.Resources/deploymentScripts",
+            "apiVersion": "2019-10-01-preview",
+            "name": "[variables('disk-encrypt-set-deployment-name')]",
+            "location": "[resourceGroup().location]",
+            "dependsOn": [
+                "[variables('key-vault-deployment-name')]",
+                "[resourceId('Microsoft.Authorization/roleAssignments', variables('bootstrapRoleAssignmentId'))]"
+            ],
+            "identity": {
+                "type": "UserAssigned",
+                "userAssignedIdentities": {
+                    "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('identityName'))]": {
+                    }
+                }
+            },
+            "kind": "AzurePowerShell",
+            "properties": {
+                "forceUpdateTag": "[parameters('utc-value')]",
+                "azPowerShellVersion": "3.0",
+                "timeout": "PT30M",
+                "arguments": "[format(' -vaultName {0} -vaultRG {1} -keyName {2}', variables('keyVaultName'),variables('resourceGroup'),variables('disk-encrypt-key-name'))]", // can pass an arguement string, double quotes must be escaped
+                "scriptContent": "
+          param(
+            [string] [Parameter(Mandatory=$true)] $vaultName,
+            [string] [Parameter(Mandatory=$true)] $vaultRG,
+            [string] [Parameter(Mandatory=$true)] $keyName
+          )
+
+          $ErrorActionPreference = 'Stop'
+          $DeploymentScriptOutputs = @{}
+            
+
+            $keyDestination=\"Software\"
+            $key = Add-AzKeyVaultKey -VaultName $vaultName -Name $keyName -Destination $keyDestination
+
+            $keyVault= Get-AzKeyVault -VaultName $vaultName -ResourceGroupName $vaultRG
+
+            $desConfig=New-AzDiskEncryptionSetConfig -Location $keyVault.Location -SourceVaultId $keyVault.ResourceId -KeyUrl $key.Key.Kid -IdentityType SystemAssigned
+
+            $des=New-AzDiskEncryptionSet -Name $keyName -ResourceGroupName $vaultRG -InputObject $desConfig
+
+             # Check for MSI to be created.
+             $tries = 0
+             do {
+             Write-Host 'Waiting for Azure AD to populate...'
+              Start-Sleep -Seconds 10
+              $operation = Get-AzDiskEncryptionSet -Name $keyName -ResourceGroupName $vaultRG
+              Write-Host 'MSI for disk encrypt set' $operation.Identity.PrincipalId
+              $tries++
+
+            } while (!$operation.Identity)
+
+            $secretValue=ConvertTo-SecureString $des.Id -AsPlainText -Force
+            $secret=Set-AzKeyVaultSecret -VaultName $vaultName -name 'desID' -SecretValue $secretValue
+                      
+           $DeploymentScriptOutputs['desID'] = $des.Id
+           $DeploymentScriptOutputs['desObjectID'] = $operation.Identity.PrincipalId
+            $des | Out-String
+        ",
+                "cleanupPreference": "OnSuccess",
+                "retentionInterval": "P1D"
+            }
+        },
+
+        //Add access policy to the KV for the disk encryption set
+        {
+            "type": "Microsoft.Resources/deployments",
+            "apiVersion": "2019-10-01",
+            "name": "addAccessPolicytoKeyVault",
+            "dependsOn": [
+                "[variables('key-vault-deployment-name')]",
+                "[variables('disk-encrypt-set-deployment-name')]"
+            ],
+            "properties": {
+                "mode": "Incremental",
+                "template": {
+                    "$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+                    "contentVersion": "1.0.0.0",
+                    "resources": [
+                        {
+                            "type": "Microsoft.KeyVault/vaults/accessPolicies",
+                            "name": "[concat(variables('keyVaultName'), '/add')]",
+                            "apiVersion": "2018-02-14-preview",
+                            "properties": {
+                                "accessPolicies": [
+                                    {
+                                        "tenantId": "[variables('tenantId')]",
+                                        "objectId": "[reference(variables('disk-encrypt-set-deployment-name')).outputs.desObjectID]",
+                                        "permissions": {
+                                            "keys": [
+                                                "get",
+                                                "wrapKey",
+                                                "unwrapKey"
+                                            ],
+                                            "secrets": [ "get", "list" ],
+                                            "certificates": [ "get", "list" ],
+                                            "storage": [ "all" ]
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                }
+            }
+        }
+
+    ],
+    "outputs": {
+        "desID": {
+            "type": "string",
+            "value": "[reference(variables('disk-encrypt-set-deployment-name')).outputs.desID]"
+        }
+    }
+}

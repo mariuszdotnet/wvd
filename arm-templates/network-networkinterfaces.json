@@ -1,0 +1,56 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "instance-count": {
+            "type": "int",
+            "metadata": {
+                "description": "Number of session hosts that will be created and added to the hostpool."
+            },
+            "defaultValue": 2
+        },
+        "rdsh-prefix": {
+            "type": "string",
+            "metadata": {
+            "description": "This prefix will be used in combination with the VM number to create the VM name. This value includes the dash, so if using “rdsh” as the prefix, VMs would be named “rdsh-0”, “rdsh-1”, etc. You should use a unique prefix to reduce name collisions in Active Directory."
+            },
+            "defaultValue": "rdsh"
+        },
+        "subnet-id": {
+            "type": "string",
+            "metadata": {
+                "description": "The unique id of the subnet for the nics."
+            }
+        }
+    },
+    "functions": [],
+    "variables": {},
+    "resources": [
+        {
+            "apiVersion": "2019-12-01",
+            "type": "Microsoft.Network/networkInterfaces",
+            "name": "[concat(parameters('rdsh-prefix'), copyindex(), '-nic')]",
+            "location": "[resourceGroup().location]",
+            "copy": {
+            "name": "rdsh-nic-loop",
+            "count": "[parameters('instance-count')]"
+            },
+            "properties": {
+                "ipConfigurations": [
+                {
+                    "name": "ipconfig",
+                    "properties": {
+                        "privateIPAllocationMethod": "Dynamic",
+                        "subnet": {
+                            "id": "[parameters('subnet-id')]"
+                        }
+                    }
+                }
+            ],
+            "enableAcceleratedNetworking": false
+            },
+            "dependsOn": []
+        }
+    ],
+    "outputs": {}
+}

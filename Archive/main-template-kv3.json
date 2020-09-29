@@ -1,0 +1,390 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "VaultName": {
+            "type": "string",
+            "metadata": {
+                "description": "The name of the keyvault that contains the secret."
+            }
+        },
+        "VaultResourceGroupName": {
+            "type": "string",
+            "metadata": {
+                "description": "The name of the resource group that contains the keyvault."
+            }
+        },
+        "VaultSubscriptionId": {
+            "type": "string",
+            "defaultValue": "[subscription().subscriptionId]",
+            "metadata": {
+                "description": "The name of the subscription that contains the keyvault."
+            }
+        },
+        "utc-value": {
+            "type": "string",
+            "defaultValue": "[utcNow()]"
+        },
+        "HostPoolName": {
+            "type": "string",
+            "defaultValue": "poolA"
+        },
+        "host-pool-resource-group": {
+            "type": "string",
+            "defaultValue": "aib-wvd-hostpool-rg",
+            "metadata": {
+                "description": "The name of the  hostpool resource group."
+            }
+        },
+        "workspaceId": {
+            "type": "string",
+            "defaultValue":"/subscriptions/1965c25a-b7fd-48b5-a393-c9e785c1c4d9/resourcegroups/azureminilab-la/providers/microsoft.operationalinsights/workspaces/azureminilab2019"
+        },
+        "_artifactsLocation": {
+            "type": "string",
+            "defaultValue": "https://azminlandevops.blob.core.windows.net/"
+        },
+        "artifactsLocationSasToken": {
+            "type": "securestring"
+        }
+    },
+    "functions": [],
+    "variables": {
+        "resourceGroup": "[replace(string(resourceGroup().name),'\"', '\\\"')]",
+        "tenantId":"[subscription().tenantId]",
+        "hostpool-token-deployment-name": "[concat('get-hostpool-token-',parameters('utc-value'))]",
+        "availability-set-deployment-name": "[concat('compute-availabilitysets-',parameters('utc-value'))]",
+        "network-iterfaces-deployment-name": "[concat('network-interfaces-',parameters('utc-value'))]",
+        "key-vault-deployment-name": "[concat('add-key-vault-',parameters('utc-value'))]",
+        "keyVaultName":"[take(uniqueString(parameters('HostPoolName')),24)]",
+        "identityName-deployment-name":"[concat(parameters('HostPoolName'),'-diskencrypt-mi',parameters('utc-value'))]",
+        "identityName":"[concat(parameters('HostPoolName'),'-diskencrypt-mi')]",
+        "bootstrapRoleAssignmentId": "[guid(concat(resourceGroup().id, 'contributor'))]",
+        "contributorRoleDefinitionId": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Authorization/roleDefinitions/', 'b24988ac-6180-42a0-ab88-20f7382dd24c')]",
+        "disk-encrypt-set-deployment-name":"[concat(parameters('HostPoolName'),'-disk-encrypt-set-',parameters('utc-value'))]",
+        "disk-encrypt-key-name":"[concat(parameters('HostPoolName'),'-disk-encrypt-key')]",
+        "virtual-machines-deployment-name": "[concat('virtual-machines-',parameters('utc-value'))]",
+        "rdsh-prefix":"[take(uniqueString(parameters('HostPoolName')),7)]",
+        "domain-join-ext-deployment-name": "[concat('domain-join-ext-',parameters('utc-value'))]",
+        "add-session-host-ext-deployment-name": "[concat('add-session-host-',parameters('utc-value'))]",
+        "templateURI": "[concat(parameters('_artifactsLocation'),'templates/arm-templates/')]"
+    },
+    "resources": [
+        // Get Hostpool Token
+        {
+            "type": "Microsoft.Resources/deployments",
+            "apiVersion": "2019-10-01",
+            "name": "[variables('hostpool-token-deployment-name')]",
+            "resourceGroup": "[parameters('host-pool-resource-group')]",
+            "properties": {
+                "mode": "Incremental",
+                "parameters": {
+                    "hostpool-name": {
+                        "value": "[parameters('HostPoolName')]"
+                    }
+                },
+                "templateLink": {
+                    //"uri":"https://raw.githubusercontent.com/mariuszdotnet/azure-image-builder-wvd/master/arm-templates/desktopvirtualization-hostpools.json",
+                    "uri": "[concat(variables('templateURI'),'desktopvirtualization-hostpools.json',parameters('artifactsLocationSasToken'))]",
+                    "contentVersion": "1.0.0.0"
+                }
+            }
+        },
+        // Deploy Availability Set
+        {
+            "type": "Microsoft.Resources/deployments",
+            "apiVersion": "2019-10-01",
+            "name": "[variables('availability-set-deployment-name')]",
+            "properties": {
+                "mode": "Incremental",
+                "templateLink": {
+                    //"uri":"https://raw.githubusercontent.com/mariuszdotnet/azure-image-builder-wvd/master/arm-templates/compute-availabilitysets.json",
+                    "uri": "[concat(variables('templateURI'),'compute-availabilitysets.json',parameters('artifactsLocationSasToken'))]",
+                    "contentVersion": "1.0.0.0"
+                }
+            }
+        },
+        // Deploy Network Interfaces
+        {
+            "type": "Microsoft.Resources/deployments",
+            "apiVersion": "2019-10-01",
+            "name": "[variables('network-iterfaces-deployment-name')]",
+            "dependsOn": [
+            ],
+            "properties": {
+                "mode": "Incremental",
+                "parameters": {
+                    "subnet-id": {
+                        "reference": {
+                            "keyVault": {
+                                "id": "[resourceId(parameters('VaultSubscriptionId'), parameters('VaultResourceGroupName'), 'Microsoft.KeyVault/vaults', parameters('VaultName'))]"
+                            },
+                            "secretName": "subnet-id"
+                        }
+                    },
+                        "rdsh-prefix":{
+                            "value": "[variables('rdsh-prefix')]"
+                        }
+                },
+                "templateLink": {
+                    //"uri":"https://raw.githubusercontent.com/mariuszdotnet/azure-image-builder-wvd/master/arm-templates/network-networkinterfaces.json",
+                    "uri": "[concat(variables('templateURI'),'network-networkinterfaces.json',parameters('artifactsLocationSasToken'))]",
+                    "contentVersion": "1.0.0.0"
+                }
+            }
+        },
+
+    // Create user assigned identity for deployment script and assign contributor role over the vm rgp
+        {
+      "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
+      "apiVersion": "2018-11-30",
+      "name": "[variables('identityName')]",
+      "location": "[resourceGroup().location]"
+        },
+     {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2018-09-01-preview",
+      "name": "[variables('bootstrapRoleAssignmentId')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('identityName'))]"
+      ],
+      "properties": {
+        "roleDefinitionId": "[variables('contributorRoleDefinitionId')]",
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('identityName')), '2018-11-30').principalId]",
+        "scope": "[resourceGroup().id]",
+        "principalType": "ServicePrincipal"
+      }
+    },
+
+        //Deploy KV for the host pool RG
+            {
+            "type": "Microsoft.Resources/deployments",
+            "apiVersion": "2020-06-01",
+            "name": "[variables('key-vault-deployment-name')]",
+            "dependsOn":["[variables('identityName')]"],
+            "resourceGroup": "[resourceGroup().name]",
+            "properties": {
+                "mode": "Incremental",
+                "parameters": {
+                    "keyVaultName": {
+                        "value": "[variables('keyVaultName')]"
+                    },
+                    "neworExistingKeyVault": {
+                        "value":"newKeyVault"
+                    },
+                    "AzDevOpsSPN": {
+                        "value":"[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('identityName')), '2018-11-30').principalId]"
+                    },
+                    "secretsObject": {
+                        "value": {
+                            "secrets": [
+                               { "secretName": "host-pool-token", "secretValue":"[reference(variables('hostpool-token-deployment-name')).outputs.hostpooltoken.value]" }
+                            ]
+                        }
+                    },
+                    "workspaceId": {
+                    "value": "[parameters('workspaceId')]"
+                    }
+                },
+                "templateLink": {
+                    "uri": "[concat(variables('templateURI'),'create-keyvault.json',parameters('artifactsLocationSasToken'))]",
+                    "contentVersion": "1.0.0.0"
+                }
+            }
+                },
+
+    // Deployment script to generate key. Add to Key Vault. Create disk encryption set. Set the permissions.
+
+    {
+      "type": "Microsoft.Resources/deploymentScripts",
+      "apiVersion": "2019-10-01-preview",
+      "name": "[variables('disk-encrypt-set-deployment-name')]",
+      "location": "[resourceGroup().location]",
+      "dependsOn": [
+        "[variables('key-vault-deployment-name')]",
+        "[resourceId('Microsoft.Authorization/roleAssignments', variables('bootstrapRoleAssignmentId'))]"
+      ],
+      "identity": {
+        "type": "UserAssigned",
+        "userAssignedIdentities": {
+          "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('identityName'))]": {
+          }
+        }
+      },
+      "kind": "AzurePowerShell",
+      "properties": {
+        "forceUpdateTag": "[parameters('utc-value')]",
+        "azPowerShellVersion": "3.0",
+        "timeout": "PT30M",
+        "arguments": "[format(' -vaultName {0} -vaultRG {1} -keyName {2}', variables('keyVaultName'),variables('resourceGroup'),variables('disk-encrypt-key-name'))]", // can pass an arguement string, double quotes must be escaped
+        "scriptContent": "
+          param(
+            [string] [Parameter(Mandatory=$true)] $vaultName,
+            [string] [Parameter(Mandatory=$true)] $vaultRG,
+            [string] [Parameter(Mandatory=$true)] $keyName
+          )
+
+          $ErrorActionPreference = 'Stop'
+          $DeploymentScriptOutputs = @{}
+            
+
+            $keyDestination=\"Software\"
+            $key = Add-AzKeyVaultKey -VaultName $vaultName -Name $keyName -Destination $keyDestination
+
+            $keyVault= Get-AzKeyVault -VaultName $vaultName -ResourceGroupName $vaultRG
+
+            $desConfig=New-AzDiskEncryptionSetConfig -Location $keyVault.Location -SourceVaultId $keyVault.ResourceId -KeyUrl $key.Key.Kid -IdentityType SystemAssigned
+
+            $des=New-AzDiskEncryptionSet -Name $keyName -ResourceGroupName $vaultRG -InputObject $desConfig
+
+             # Check for MSI to be created.
+             $tries = 0
+             do {
+             Write-Host 'Waiting for Azure AD to populate...'
+              Start-Sleep -Seconds 10
+              $operation = Get-AzDiskEncryptionSet -Name $keyName -ResourceGroupName $vaultRG
+              Write-Host 'MSI for disk encrypt set' $operation.Identity.PrincipalId
+              $tries++
+
+            } while (!$operation.Identity)
+                      
+           $DeploymentScriptOutputs['desID'] = $des.Id
+           $DeploymentScriptOutputs['desObjectID'] = $operation.Identity.PrincipalId
+            $des | Out-String
+        ",
+        "cleanupPreference": "OnSuccess",
+        "retentionInterval": "P1D"
+      }
+    },
+
+    //Add access policy to the KV for the disk encryption set
+            {
+                "type": "Microsoft.Resources/deployments",
+                "apiVersion": "2019-10-01",
+                "name": "addAccessPolicytoKeyVault",
+                "dependsOn": [
+                    "[variables('key-vault-deployment-name')]", 
+                    "[variables('disk-encrypt-set-deployment-name')]"
+                ],
+                "properties": {
+                    "mode": "Incremental",
+                    "template": {
+                        "$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+                        "contentVersion": "1.0.0.0",
+                        "resources": [
+                                    {
+                        "type": "Microsoft.KeyVault/vaults/accessPolicies",
+                        "name": "[concat(variables('keyVaultName'), '/add')]",
+                        "apiVersion": "2018-02-14-preview",
+                        "properties": {
+                            "accessPolicies": [
+                                {
+                                    "tenantId": "[variables('tenantId')]",
+                                    "objectId": "[reference(variables('disk-encrypt-set-deployment-name')).outputs.desObjectID]",
+                                    "permissions": {
+                                        "keys": [                                    
+                                            "get",
+                                            "wrapKey",
+                                            "unwrapKey"],
+                                        "secrets": ["get","list"],
+                                        "certificates": ["get","list"],
+                                        "storage": ["all"]
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                        ]
+                    }
+                }
+                },
+
+        // Deploy Virtual Machines
+        {
+            "type": "Microsoft.Resources/deployments",
+            "apiVersion": "2019-10-01",
+            "name": "[variables('virtual-machines-deployment-name')]",
+            "dependsOn": [
+                "[variables('network-iterfaces-deployment-name')]",
+                "[variables('availability-set-deployment-name')]",
+                "[variables('disk-encrypt-set-deployment-name')]",
+                "addAccessPolicytoKeyVault"
+            ],
+            "properties": {
+                "mode": "Incremental",
+                "parameters": {
+                    "diskEncryptionSetId": {
+                        "value": "[reference(variables('disk-encrypt-set-deployment-name')).outputs.desID]"
+                        },
+                        "rdsh-prefix":{
+                            "value": "[variables('rdsh-prefix')]"
+                        }
+                },
+                "templateLink": {
+                    // "uri":"https://raw.githubusercontent.com/mariuszdotnet/azure-image-builder-wvd/master/arm-templates/compute-virtualmachines.json",
+                    "uri": "[concat(variables('templateURI'),'compute-virtualmachines.json',parameters('artifactsLocationSasToken'))]",
+                    "contentVersion": "1.0.0.0"
+                }
+            }
+        },
+        // Deploy Domain Join Extension
+        {
+            "type": "Microsoft.Resources/deployments",
+            "apiVersion": "2019-10-01",
+            "name": "[variables('domain-join-ext-deployment-name')]",
+            "dependsOn": [
+                "[variables('virtual-machines-deployment-name')]"
+            ],
+            "properties": {
+                "mode": "Incremental",
+                "parameters": {
+                    "admin-account-password": {
+                        "reference": {
+                            "keyVault": {
+                                "id": "[resourceId(parameters('VaultSubscriptionId'), parameters('VaultResourceGroupName'), 'Microsoft.KeyVault/vaults', parameters('VaultName'))]"
+                            },
+                            "secretName": "admin-account-password"
+                        }
+                    },
+                        "rdsh-prefix":{
+                            "value": "[variables('rdsh-prefix')]"
+                        }
+                },
+                "templateLink": {
+                    // "uri":"https://raw.githubusercontent.com/mariuszdotnet/azure-image-builder-wvd/master/arm-templates/extensions-jsonaddomainextension.json",
+                    "uri": "[concat(variables('templateURI'),'extensions-jsonaddomainextension.json',parameters('artifactsLocationSasToken'))]",
+                    "contentVersion": "1.0.0.0"
+                }
+            }
+        },
+        // Deploy DSC Add Session Host Extension
+        {
+            "type": "Microsoft.Resources/deployments",
+            "apiVersion": "2019-10-01",
+            "name": "[variables('add-session-host-ext-deployment-name')]",
+            "dependsOn": [
+                "[variables('domain-join-ext-deployment-name')]",
+                "[variables('hostpool-token-deployment-name')]"
+            ],
+            "properties": {
+                "mode": "Incremental",
+                "parameters": {
+                    "host-pool-name": {
+                        "value": "[parameters('HostPoolName')]"
+                    },
+                        "rdsh-prefix":{
+                            "value": "[variables('rdsh-prefix')]"
+                        },
+                    //"host-pool-token":{"value": "[parameters('host-pool-token')]"}
+                    "host-pool-token": { "value": "[reference(variables('hostpool-token-deployment-name')).outputs.hostpooltoken.value]" }
+                },
+                "templateLink": {
+                    //"uri":"https://raw.githubusercontent.com/mariuszdotnet/azure-image-builder-wvd/master/arm-templates/extensions-dsc-addsessionhost.json",
+                    "uri": "[concat(variables('templateURI'),'extensions-dsc-addsessionhost.json',parameters('artifactsLocationSasToken'))]",
+                    "contentVersion": "1.0.0.0"
+                }
+            }
+        }
+    ],
+    "outputs": {}
+}

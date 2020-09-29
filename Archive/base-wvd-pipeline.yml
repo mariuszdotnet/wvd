@@ -1,0 +1,73 @@
+# Starter pipeline
+# Start with a minimal pipeline that you can customize to build and deploy your code.
+# Add steps that build, run tests, deploy, and more:
+# https://aka.ms/yaml
+
+parameters:
+  - name: targetRegion
+    displayName: Target Azure Region for deployment
+    type: string
+    default: canadacentral
+    values:
+      - canadacentral
+      - canadaeast
+
+  - name: targetContainer
+    displayName: Target Host Container
+    type: string
+    values:
+      - blue
+      - green
+
+  - name: environment
+    displayName: Environment
+    type: string
+    values:
+      - SBX
+      - DEV
+      - PRD
+    default: SBX
+
+  - name: persona
+    displayName: Persona
+    type: string
+    default: DEV
+
+  - name: podId
+    displayName: Pod ID (format:POD##, ex POD01)
+    type: string
+    default: POD01
+
+  - name: regionCodes
+    type: object
+    default:
+      canadacentral: CANC
+      canadaeast: CAEA
+      eastus2: USE2
+      centralus: USN
+
+stages:
+  - template: prep-stage.yml
+
+  - template: deploy-pod-stage.yml
+    parameters:
+      podId: ${{ parameters.podId }}
+      podResourceGroup: ${{ format('$(resourceGroupPrefix)-{0}', parameters.podId) }}
+      targetRegion: ${{ parameters.targetRegion }}
+      keyVaultName: ${{ format('{0}-{1}-WVD-{2}-KV', parameters.environment, parameters.regionCodes[parameters.targetRegion], parameters.persona) }}
+
+  - template: deploy-host-pool-vms-stage.yml
+    parameters:
+      podId: ${{ parameters.podId }}
+      keyVaultName: ${{ format('{0}-{1}-WVD-{2}-KV', parameters.environment, parameters.regionCodes[parameters.targetRegion], parameters.persona) }}
+      podResourceGroup: ${{ format('$(resourceGroupPrefix)-{0}', parameters.podId) }}
+      containerResourceGroup: ${{ format('$(resourceGroupPrefix)-{0}-{1}', parameters.podId, parameters.targetContainer) }}
+      targetRegion: ${{ parameters.targetRegion }}
+      targetContainer: ${{ parameters.targetContainer }}
+
+  - template: swap-users-stage.yml
+    parameters:
+      podId: ${{ parameters.podId }}
+      keyVaultName: ${{ format('{0}-{1}-WVD-{2}-KV', parameters.environment, parameters.regionCodes[parameters.targetRegion], parameters.persona) }}
+      podResourceGroup: ${{ format('$(resourceGroupPrefix)-{0}', parameters.podId) }}
+#  - template: destroy-host-group-stage.yml

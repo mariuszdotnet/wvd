@@ -1,0 +1,95 @@
+# Starter pipeline
+# Start with a minimal pipeline that you can customize to build and deploy your code.
+# Add steps that build, run tests, deploy, and more:
+# https://aka.ms/yaml
+
+trigger:
+  - none
+
+pr:
+  - none
+
+pool:
+  name: Hosted Windows 2019 with VS2019
+  demands: azureps
+
+variables:
+  - name: SUBSCRIPTIONID
+    value: 1965c25a-b7fd-48b5-a393-c9e785c1c4d9
+  - name: SESSIONHOSTRESOURCEGROUPNAME
+    value: Azureminilab-WVD-GREEN
+  - name: WORKSPACERESOURCEGROUPNAME
+    value: Azureminilab-WVD-Pod
+  - name: LOCATION
+    value: canadacentral
+  - name: HOSTPOOLNAME
+    value: SBX-HostPool-CENG-t2k-GREEN
+
+stages:
+  # Create Prep Deployment
+  - stage: Prep_Deployment
+    displayName: Prep Deployment
+    jobs:
+      - job: Download_Repo
+        displayName: Download the Repo
+        steps:
+          - checkout: self
+            displayName: Clone Git Repo
+
+          - task: PowerShell@2
+            displayName: List Git Repo Content
+            inputs:
+              targetType: "inline"
+              script: "ls"
+
+          - task: AzureFileCopy@4
+            inputs:
+              azureSubscription: "AzDevOPS"
+              SourcePath: '$(Build.Repository.LocalPath)\*'
+              Destination: "AzureBlob"
+              storage: "azminlandevops"
+              ContainerName: "templates"
+              sasTokenTimeOutInMinutes: "240"
+
+  - stage: Cleanup_Session_Hosts_WVD
+    displayName: Clean up the session hosts registration
+    jobs:
+      - job: Remove_Session_Hosts_Registration
+        displayName: Drain connections, remove users. Remove session hosts from the pool.
+        steps:
+          - task: AzurePowerShell@5
+            inputs:
+              azureSubscription: "AzDevOPS"
+              ScriptType: "FilePath"
+              ScriptPath: '$(Build.Repository.LocalPath)\misc\Drain_RemoveHosts.ps1'
+              ScriptArguments: "-HostPoolName $(HOSTPOOLNAME) -ResourceGroupName $(WORKSPACERESOURCEGROUPNAME) -SubscriptionId $(SUBSCRIPTIONID)"
+              azurePowerShellVersion: "LatestVersion"
+              pwsh: true
+
+  - stage: Cleanup_Sessions_Hosts_RGP
+    displayName: Remove the Session Hosts Resource Group
+    jobs:
+      - job: Remove_Session_Hosts_WVD
+        displayName: Remove Session Hosts VMs -> Removing Resource Group
+        steps:
+          - task: AzureResourceManagerTemplateDeployment@3
+            inputs:
+              deploymentScope: "Resource Group"
+              azureResourceManagerConnection: "AzDevOPS"
+              subscriptionId: "$(SUBSCRIPTIONID)"
+              action: "DeleteRG"
+              location: $(LOCATION)
+              resourceGroupName: "$(SESSIONHOSTRESOURCEGROUPNAME)"
+
+  - stage: Create_Session_Hosts
+    displayName: Create and Register Session Hosts
+    jobs:
+      - job: Depoy_and_Register_Session_Hosts
+        displayName: Deploy and register Session Hosts in RGP
+        steps:
+          - task: AzurePowerShell@5
+            inputs:
+              azureSubscription: "AzDevOPS"
+              ScriptType: "FilePath"
+              ScriptPath: "Build-Host-Pool.ps1"
+              azurePowerShellVersion: "LatestVersion"

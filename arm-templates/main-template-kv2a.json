@@ -1,0 +1,464 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "VaultName": {
+            "type": "string",
+            "metadata": {
+                "description": "The name of the keyvault that contains the secret."
+            }
+        },
+        "VaultResourceGroupName": {
+            "type": "string",
+            "metadata": {
+                "description": "The name of the resource group that contains the keyvault."
+            }
+        },
+        "VaultSubscriptionId": {
+            "type": "string",
+            "defaultValue": "[subscription().subscriptionId]",
+            "metadata": {
+                "description": "The name of the subscription that contains the keyvault."
+            }
+        },
+        "utc-value": {
+            "type": "string",
+            "defaultValue": "[utcNow()]"
+        },
+        "desID": {
+            "type": "string"
+        },
+        "workspaceId": {
+            "type": "string",
+            "defaultValue": "/subscriptions/1965c25a-b7fd-48b5-a393-c9e785c1c4d9/resourcegroups/azureminilab-la/providers/microsoft.operationalinsights/workspaces/azureminilab2019"
+        },
+        "personaID": {
+            "type": "string"
+        },
+        "podID": {
+            "type": "string"
+        },
+        "HostPoolName": {
+            "type": "string",
+            "defaultValue": "poolA"
+        },
+        "host-pool-resource-group": {
+            "type": "string",
+            "defaultValue": "aib-wvd-hostpool-rg",
+            "metadata": {
+                "description": "The name of the  hostpool resource group."
+            }
+        },
+        "subnetid": {
+            "type": "string"
+        },
+        "instance-count": {
+            "type": "int",
+            "metadata": {
+                "description": "Number of session hosts that will be created and added to the hostpool."
+            },
+            "defaultValue": 2
+        },
+        "vm-size": {
+            "type": "string",
+            "metadata": {
+                "description": "The size of the session host VMs."
+            },
+            "defaultValue": "Standard_A1_v2"
+        },
+        "useSharedImage": {
+            "type": "bool",
+            "defaultValue": true
+        },
+        "enableAvSets":{
+            "type": "string",
+            "defaultValue":"false", 
+            "allowedValues": [
+                "true",
+                "false"
+            ]
+        },
+        "shared-image-gallery-rg": {
+            "type": "string",
+            "metadata": {
+                "description": "RG name of the Azure SIG"
+            },
+            "defaultValue": "aib-sig-rg"
+        },
+        "shared-image-gallery-name": {
+            "type": "string",
+            "metadata": {
+                "description": "The name of the Azure SIG for your images."
+            },
+            "defaultValue": "myIBSIG"
+        },
+        "shared-image-gallery-definition": {
+            "type": "string",
+            "metadata": {
+                "description": "Defnition of the image to use from SIG."
+            },
+            "defaultValue": "WIN10"
+        },
+        "joinDomain": {
+            "type": "bool",
+            "defaultValue": true
+        }
+    },
+    "functions": [],
+    "variables": {
+        "regionCode": {
+            "canadacentral": "CC",
+            "canadaeast": "CE",
+            "eastus2": "U2",
+            "centralus": "UC",
+            "westus2": "W2",
+            "westus": "UW"
+        },
+        "vmRegionCode": "[variables('regionCode')[resourceGroup().location]]",
+
+        "templateUri": "[deployment().properties.templateLink.uri]",
+        "sasToken": "[substring(variables('templateUri'), indexOf(variables('templateUri'), '?'))]",
+        "baseUri": "[substring(variables('templateUri'), 0, add(lastIndexOf(variables('templateUri'),'/'), 1))]",
+        "host-pool-token-template": "[concat(uri(variables('baseUri'), 'desktopvirtualization-hostpools.json'), variables('sasToken'))]",
+        "compute-availabilitysets-template": "[concat(uri(variables('baseUri'), 'compute-availabilitysets.json'), variables('sasToken'))]",
+        "network-networkinterfaces-template": "[concat(uri(variables('baseUri'), 'network-networkinterfaces.json'), variables('sasToken'))]",
+        "compute-virtualmachines-template": "[concat(uri(variables('baseUri'), 'compute-virtualmachines.json'), variables('sasToken'))]",
+        "extensions-customextension-template": "[concat(uri(variables('baseUri'), 'extensions-customextension.json'), variables('sasToken'))]",
+        "extensions-jsonaddomainextension-template": "[concat(uri(variables('baseUri'), 'extensions-jsonaddomainextension.json'), variables('sasToken'))]",
+        "extensions-dsc-addsessionhost-template": "[concat(uri(variables('baseUri'), 'extensions-dsc-addsessionhost.json'), variables('sasToken'))]",
+        "extensions-iaas-malware-template":"[concat(uri(variables('baseUri'), 'extensions-iaas-malware.json'), variables('sasToken'))]",
+        "extensions-qualys-asc-template": "[concat(uri(variables('baseUri'), 'extensions-asc-qualys.json'), variables('sasToken'))]",
+        "hostpool-token-deployment-name": "[concat('get-hostpool-token-',parameters('utc-value'))]",
+        "rdsh-prefix": "[concat('WVD',variables('vmRegionCode'),parameters('personaID'), replace(parameters('podID'),'POD', 'P'),'-')]",
+        "availability-set-deployment-name": "[concat('compute-availabilitysets-',parameters('utc-value'))]",
+        "network-iterfaces-deployment-name": "[concat('network-interfaces-',parameters('utc-value'))]",
+        "virtual-machines-deployment-name": "[concat('virtual-machines-',parameters('utc-value'))]",
+        "vm-customization-deployment-name": "[concat('vms-customize-',parameters('utc-value'))]",
+        "domain-join-ext-deployment-name": "[concat('domain-join-ext-',parameters('utc-value'))]",
+        "add-session-host-ext-deployment-name": "[concat('add-session-host-',parameters('utc-value'))]",
+        "iaas-malware-ext-deployment-name":"[concat('iaas-malware-ext',parameters('utc-value'))]",
+        "qualys-asc-ext-deployment-name": "[concat('qualys-asc-ext',parameters('utc-value'))]"
+    },
+    "resources": [
+        // Get Hostpool Token
+        {
+            "type": "Microsoft.Resources/deployments",
+            "apiVersion": "2019-10-01",
+            "name": "[variables('hostpool-token-deployment-name')]",
+            "resourceGroup": "[parameters('host-pool-resource-group')]",
+            "properties": {
+                "mode": "Incremental",
+                "parameters": {
+                    "hostpool-name": {
+                        "value": "[parameters('HostPoolName')]"
+                    }
+                },
+                "templateLink": {
+                    //"uri":"https://raw.githubusercontent.com/mariuszdotnet/azure-image-builder-wvd/master/arm-templates/desktopvirtualization-hostpools.json",
+                    "uri": "[variables('host-pool-token-template')]",
+                    "contentVersion": "1.0.0.0"
+                }
+            }
+        },
+        // Deploy Availability Set
+        {
+            "type": "Microsoft.Resources/deployments",
+            "apiVersion": "2019-10-01",
+            "name": "[variables('availability-set-deployment-name')]",
+            "condition":"[equals(parameters('enableAvSets'),'true')]",
+            "properties": {
+                "mode": "Incremental",
+                "parameters": {
+                    "availabilitySet1": {
+                        "value": "[concat(variables('rdsh-prefix'),'-avset')]"
+                    }
+                },
+                "templateLink": {
+                    //"uri":"https://raw.githubusercontent.com/mariuszdotnet/azure-image-builder-wvd/master/arm-templates/compute-availabilitysets.json",
+                    "uri": "[variables('compute-availabilitysets-template')]",
+                    "contentVersion": "1.0.0.0"
+                }
+            }
+        },
+        // Deploy Network Interfaces
+        {
+            "type": "Microsoft.Resources/deployments",
+            "apiVersion": "2019-10-01",
+            "name": "[variables('network-iterfaces-deployment-name')]",
+            "dependsOn": [
+            ],
+            "properties": {
+                "mode": "Incremental",
+                "parameters": {
+                    "subnet-id": {
+                        "reference": {
+                            "keyVault": {
+                                "id": "[resourceId(parameters('VaultSubscriptionId'), parameters('VaultResourceGroupName'), 'Microsoft.KeyVault/vaults', parameters('VaultName'))]"
+                            },
+                            "secretName": "[parameters('subnetid')]"
+                        }
+                    },
+                    "instance-count": {
+                        "value": "[parameters('instance-count')]"
+                    },
+                    "rdsh-prefix": {
+                        "value": "[variables('rdsh-prefix')]"
+                    }
+                },
+                "templateLink": {
+                    //"uri":"https://raw.githubusercontent.com/mariuszdotnet/azure-image-builder-wvd/master/arm-templates/network-networkinterfaces.json",
+                    "uri": "[variables('network-networkinterfaces-template')]",
+                    "contentVersion": "1.0.0.0"
+                }
+            }
+        },
+        // Deploy Virtual Machines
+        {
+            "type": "Microsoft.Resources/deployments",
+            "apiVersion": "2019-10-01",
+            "name": "[variables('virtual-machines-deployment-name')]",
+            "dependsOn": [
+                "[variables('network-iterfaces-deployment-name')]",
+                "[variables('availability-set-deployment-name')]"
+            ],
+            "properties": {
+                "mode": "Incremental",
+                "parameters": {
+                    "diskEncryptionSetId": {
+                        "value": "[parameters('desID')]"
+                    },
+                    "workspaceId": {
+                        "value": "[parameters('workspaceId')]"
+                    },
+                    "rdsh-prefix": {
+                        "value": "[variables('rdsh-prefix')]"
+                    },
+                    "instance-count": {
+                        "value": "[parameters('instance-count')]"
+                    },
+                    "vm-size": {
+                        "value": "[parameters('vm-size')]"
+                    },
+                    "availability-set-name": {
+                        "value": "[concat(variables('rdsh-prefix'),'-avset')]"
+                    },
+                    "enableAvSets": {
+                        "value":"[parameters('enableAvSets')]"
+                    },
+                    "use-shared-image": {
+                        "value": "[parameters('useSharedImage')]"
+                    },
+                    "shared-image-gallery-rg": {
+                        "value": "[parameters('shared-image-gallery-rg')]"
+                    },
+                    "shared-image-gallery-name": {
+                        "value": "[parameters('shared-image-gallery-name')]"
+                    },
+                    "shared-image-gallery-definition": {
+                        "value": "[parameters('shared-image-gallery-definition')]"
+                    }
+                },
+                "templateLink": {
+                    // "uri":"https://raw.githubusercontent.com/mariuszdotnet/azure-image-builder-wvd/master/arm-templates/compute-virtualmachines.json",
+                    "uri": "[variables('compute-virtualmachines-template')]",
+                    "contentVersion": "1.0.0.0"
+                }
+            }
+        },
+        // Deploy Custom extension to apply Registry keys for FSLogix
+        {
+            "type": "Microsoft.Resources/deployments",
+            "apiVersion": "2019-10-01",
+            "name": "[variables('vm-customization-deployment-name')]",
+            "dependsOn": [
+                "[variables('virtual-machines-deployment-name')]"
+            ],
+            "properties": {
+                "mode": "Incremental",
+                "parameters": {
+                    "netappshare": {
+                        "reference": {
+                            "keyVault": {
+                                "id": "[resourceId(parameters('VaultSubscriptionId'), parameters('VaultResourceGroupName'), 'Microsoft.KeyVault/vaults', parameters('VaultName'))]"
+                            },
+                            "secretName": "netappshare"
+                        }
+                    },
+                    "rdsh-prefix": {
+                        "value": "[variables('rdsh-prefix')]"
+                    },
+                    "instance-count": {
+                        "value": "[parameters('instance-count')]"
+                    }
+                },
+                "templateLink": {
+                    // "uri":"https://raw.githubusercontent.com/mariuszdotnet/azure-image-builder-wvd/master/arm-templates/extensions-jsonaddomainextension.json",
+                    "uri": "[variables('extensions-customextension-template')]",
+                    "contentVersion": "1.0.0.0"
+                }
+            }
+        },
+
+        // Deploy Domain Join Extension
+        {
+            "type": "Microsoft.Resources/deployments",
+            "apiVersion": "2019-10-01",
+            "name": "[variables('domain-join-ext-deployment-name')]",
+            "condition": "[parameters('joinDomain')]",
+            "dependsOn": [
+                "[variables('vm-customization-deployment-name')]"
+            ],
+            "properties": {
+                "mode": "Incremental",
+                "parameters": {
+                    "admin-account-password": {
+                        "reference": {
+                            "keyVault": {
+                                "id": "[resourceId(parameters('VaultSubscriptionId'), parameters('VaultResourceGroupName'), 'Microsoft.KeyVault/vaults', parameters('VaultName'))]"
+                            },
+                            "secretName": "admin-account-password"
+                        }
+                    },
+                    "admin-account-user": {
+                        "reference": {
+                            "keyVault": {
+                                "id": "[resourceId(parameters('VaultSubscriptionId'), parameters('VaultResourceGroupName'), 'Microsoft.KeyVault/vaults', parameters('VaultName'))]"
+                            },
+                            "secretName": "admin-account-user"
+                        }
+                    },
+                    "domain": {
+                        "reference": {
+                            "keyVault": {
+                                "id": "[resourceId(parameters('VaultSubscriptionId'), parameters('VaultResourceGroupName'), 'Microsoft.KeyVault/vaults', parameters('VaultName'))]"
+                            },
+                            "secretName": "domain"
+                        }
+                    },
+                    "rdsh-prefix": {
+                        "value": "[variables('rdsh-prefix')]"
+                    },
+                    "instance-count": {
+                        "value": "[parameters('instance-count')]"
+                    }
+                },
+                "templateLink": {
+                    // "uri":"https://raw.githubusercontent.com/mariuszdotnet/azure-image-builder-wvd/master/arm-templates/extensions-jsonaddomainextension.json",
+                    "uri": "[variables('extensions-jsonaddomainextension-template')]",
+                    "contentVersion": "1.0.0.0"
+                }
+            }
+        },
+        // Deploy DSC Add Session Host Extension
+        {
+            "type": "Microsoft.Resources/deployments",
+            "apiVersion": "2019-10-01",
+            "name": "[variables('add-session-host-ext-deployment-name')]",
+            "dependsOn": [
+                "[variables('domain-join-ext-deployment-name')]",
+                "[variables('hostpool-token-deployment-name')]"
+            ],
+            "properties": {
+                "mode": "Incremental",
+                "parameters": {
+                    "host-pool-name": {
+                        "value": "[parameters('HostPoolName')]"
+                    },
+                    "rdsh-prefix": {
+                        "value": "[variables('rdsh-prefix')]"
+                    },
+                    "instance-count": {
+                        "value": "[parameters('instance-count')]"
+                    },
+                    //"host-pool-token":{"value": "[parameters('host-pool-token')]"}
+                    "host-pool-token": { "value": "[reference(variables('hostpool-token-deployment-name')).outputs.hostpooltoken.value]" }
+                },
+                "templateLink": {
+                    //"uri":"https://raw.githubusercontent.com/mariuszdotnet/azure-image-builder-wvd/master/arm-templates/extensions-dsc-addsessionhost.json",
+                    "uri": "[variables('extensions-dsc-addsessionhost-template')]",
+                    "contentVersion": "1.0.0.0"
+                }
+            }
+        },
+    // Enable and Configure Microsoft Malware
+{
+            "type": "Microsoft.Resources/deployments",
+            "apiVersion": "2019-10-01",
+            "name": "[variables('iaas-malware-ext-deployment-name')]",
+            "dependsOn": [
+                "[variables('domain-join-ext-deployment-name')]",
+                "[variables('hostpool-token-deployment-name')]",
+                "[variables('add-session-host-ext-deployment-name')]"
+            ],
+            "properties": {
+                "mode": "Incremental",
+                "parameters": {
+                    "rdsh-prefix": {
+                        "value": "[variables('rdsh-prefix')]"
+                    },
+                    "instance-count": {
+                        "value": "[parameters('instance-count')]"
+                    },
+                            "exclusionsPaths": {
+                                "value": "ProgramFiles%\\FSLogix\\Apps\\frxdrv.sys;%ProgramFiles%\\FSLogix\\Apps\\frxccd.sys;%ProgramFiles%\\FSLogix\\Apps\\frxdrvvt.sys;%TEMP%\\*.VHD;%TEMP%\\*.VHDX;%Windir%\\TEMP\\*.VHD;%Windir%\\TEMP\\*.VHDX;\\\\server\\share\\*\\*.VHD;\\\\server\\share\\*\\*.VHDX"
+                            },
+                            "exclusionsExtensions": {
+                                "value": "*.vhd;*.vhdx"
+                            },
+                            "exclusionsProcesses": {
+                                "value": "%ProgramFiles%\\FSLogix\\Apps\\frxccd.exe;%ProgramFiles%\\FSLogix\\Apps\\frxccds.exe;%ProgramFiles%\\FSLogix\\Apps\\frxsvc.exe"
+                            },
+                            "realtimeProtectionEnabled": {
+                                "value": "true"
+                            },
+                            "scheduledScanSettingsIsEnabled": {
+                                "value": "true"
+                            },
+                            "scheduledScanSettingsScanType": {
+                                "value": "Quick"
+                            },
+                            "scheduledScanSettingsDay": {
+                                "value": "7"
+                            },
+                            "scheduledScanSettingsTime": {
+                                "value": "120"
+                            }
+                },
+                "templateLink": {
+                    // "uri":"https://raw.githubusercontent.com/mariuszdotnet/azure-image-builder-wvd/master/arm-templates/extensions-jsonaddomainextension.json",
+                    "uri": "[variables('extensions-iaas-malware-template')]",
+                    "contentVersion": "1.0.0.0"
+                }
+            }
+        },
+        // Enable Qualys Extension on the seession Hosts
+        {
+            "type": "Microsoft.Resources/deployments",
+            "apiVersion": "2019-10-01",
+            "name": "[variables('qualys-asc-ext-deployment-name')]",
+            "dependsOn": [
+                "[variables('domain-join-ext-deployment-name')]",
+                "[variables('hostpool-token-deployment-name')]",
+                "[variables('add-session-host-ext-deployment-name')]",
+                "[variables('iaas-malware-ext-deployment-name')]"
+            ],
+            "properties": {
+                "mode": "Incremental",
+                "parameters": {
+                    "rdsh-prefix": {
+                        "value": "[variables('rdsh-prefix')]"
+                    },
+                    "instance-count": {
+                        "value": "[parameters('instance-count')]"
+                    }
+                },
+                "templateLink": {
+                    // "uri":"https://raw.githubusercontent.com/mariuszdotnet/azure-image-builder-wvd/master/arm-templates/extensions-jsonaddomainextension.json",
+                    "uri": "[variables('extensions-qualys-asc-template')]",
+                    "contentVersion": "1.0.0.0"
+                }
+            }
+        }
+    ],
+    "outputs": {}
+}

@@ -1,0 +1,22 @@
+variables:
+  - group: wvd-devops
+#  - name: storageAccountName
+#    value: azminlandevops
+
+#  - name: storageAccountResourceGroupName
+#    value: aib-devops-rg
+
+  - name: azureConnectionName
+    value: AzDevOPS
+  - name: SPNApplicationId
+    value: 03e7bdf9-52c2-4e60-abc2-7994562ee9e6
+    # Object ID for the service principal (AAD>Enterprise Applications:Object Id)
+
+#  - name: subscriptionId
+#    value: "1965c25a-b7fd-48b5-a393-c9e785c1c4d9"
+
+  - name: resourceGroupPrefix
+    value: Azureminilab-WVD
+
+#  - name: diskEncryptKeyResourceId
+#    value: "/subscriptions/1965c25a-b7fd-48b5-a393-c9e785c1c4d9/resourceGroups/Azureminilab-WVD-DES/providers/Microsoft.Compute/diskEncryptionSets/DEV-disk-encrypt-key"

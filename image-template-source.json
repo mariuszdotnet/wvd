@@ -1,0 +1,54 @@
+{
+    "type": "Microsoft.VirtualMachineImages/imageTemplates",
+    "apiVersion": "<APIVERSION>",
+    "location": "<AZUREIMAGEBUILDEREGION>",
+    "dependsOn": [],
+    "tags": {
+        "userIdentity": "enabled"
+    },
+    "identity": {
+        "type": "UserAssigned",
+                "userAssignedIdentities": {
+                "/subscriptions/<SUBSCRIPTIONID>/resourceGroups/<RESOURCEGROUPNAME>/providers/Microsoft.ManagedIdentity/userAssignedIdentities/<USERASSIGNEDMANAGEDIDENTITY>": {}
+                    
+        }
+    },
+    "properties": {
+    
+        "buildTimeoutInMinutes" : 100,
+    
+        "vmProfile": 
+                {
+                "vmSize": "Standard_D2_v2",
+                "osDiskSizeGB": 0,
+                "vnetConfig": {
+                    "subnetId": "/subscriptions/<VNETSUBSRCIPTIONID>/resourceGroups/<VNETRGNAME>/providers/Microsoft.Network/virtualNetworks/<VNETNAME>/subnets/<SUBNETNAME>"
+                    }
+                },
+        
+        "source": {
+            "type": "PlatformImage",
+                "publisher": "MicrosoftWindowsDesktop",
+                "offer": "office-365",
+                "sku": "19h2-evd-o365pp",
+                "version": "latest"
+            
+        },
+        "customize": [
+        ],
+        "distribute": 
+            [
+                {   "type":"SharedImage",
+                    "galleryImageId": "/subscriptions/<SUBSCRIPTIONID>/resourceGroups/<RESOURCEGROUPNAME>/providers/Microsoft.Compute/galleries/<SIGNAME>/images/<SIGIMAGENAME>",
+                    "runOutputName": "<RUNOUTPUTNAME>",
+                    "artifactTags": {
+                        "source": "azVmImageBuilder",
+                        "baseosimg": "MicrosoftWindows10Desktop"
+                    },
+                    "replicationRegions": [
+                      "<SIGREGION>"
+                    ]
+                }
+            ]
+        }
+    }

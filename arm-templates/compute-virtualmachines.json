@@ -1,0 +1,278 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "instance-count": {
+            "type": "int",
+            "metadata": {
+                "description": "Number of session hosts that will be created and added to the hostpool."
+            },
+            "defaultValue": 2
+        },
+        "rdsh-prefix": {
+            "type": "string",
+            "metadata": {
+                "description": "This prefix will be used in combination with the VM number to create the VM name. This value includes the dash, so if using “rdsh” as the prefix, VMs would be named “rdsh-0”, “rdsh-1”, etc. You should use a unique prefix to reduce name collisions in Active Directory."
+            },
+            "defaultValue": "rdsh"
+        },
+        "vm-size": {
+            "type": "string",
+            "metadata": {
+                "description": "The size of the session host VMs."
+            },
+            "defaultValue": "Standard_D1_v2"
+        },
+        "administrator-account-username": {
+            "type": "string",
+            "metadata": {
+                "description": "The username for the admin."
+            },
+            "defaultValue": "superuser"
+        },
+        "administrator-account-password": {
+            "type": "securestring",
+            "metadata": {
+                "description": "The password that corresponds to the existing domain username."
+            },
+            "defaultValue": "124325678!@#$%^&*asdfgASDFASD"
+        },
+        "use-shared-image": {
+            "type": "bool",
+            "defaultValue": true
+        },
+        "shared-image-gallery-rg": {
+            "type": "string",
+            "metadata": {
+                "description": "RG name of the Azure SIG"
+            },
+            "defaultValue": "aib-sig-rg"
+        },
+        "shared-image-gallery-name": {
+            "type": "string",
+            "metadata": {
+                "description": "The name of the Azure SIG for your images."
+            },
+            "defaultValue": "myIBSIG"
+        },
+        "shared-image-gallery-definition": {
+            "type": "string",
+            "metadata": {
+                "description": "Defnition of the image to use from SIG."
+            },
+            "defaultValue": "aibWin10365Image"
+        },
+        "osType": {
+            "type": "string",
+            "defaultValue": "windows"
+        },
+        "vm-disk-type": {
+            "type": "string",
+            "allowedValues": [
+                "Premium_LRS",
+                "StandardSSD_LRS",
+                "Standard_LRS"
+            ],
+            "metadata": {
+                "description": "The VM disk type for the VM: HDD or SSD."
+            },
+            "defaultValue": "Standard_LRS"
+        },
+        "availability-set-name": {
+            "type": "string",
+            "metadata": {
+                "description": "The name of the avaliblity set."
+            },
+            "defaultValue": "availabilitySet1"
+        },
+        "diskEncryptionSetId": {
+            "type": "string",
+            "defaultValue": ""
+        },
+        "workspaceId": {
+            "type": "string"
+        },
+        "enableAvSets":{
+            "type": "string",
+            "defaultValue":"false",
+            "allowedValues":[
+                "true",
+                "false"
+            ] 
+        }
+    },
+    "functions": [],
+    "variables": {
+        "availability-set-id": "[resourceId('Microsoft.Compute/availabilitySets/', parameters('availability-set-name'))]",
+        "existing-domain-username": "[first(split(parameters('administrator-account-username'), '@'))]",
+        "daExtensionName": "[if(equals(toLower(parameters('osType')), 'windows'), 'DependencyAgentWindows', 'DependencyAgentLinux')]",
+        "daExtensionType": "[if(equals(toLower(parameters('osType')), 'windows'), 'DependencyAgentWindows', 'DependencyAgentLinux')]",
+        "daExtensionVersion": "9.5",
+        "mmaExtensionName": "[if(equals(toLower(parameters('osType')), 'windows'), 'MMAExtension', 'OMSExtension')]",
+        "mmaExtensionType": "[if(equals(toLower(parameters('osType')), 'windows'), 'MicrosoftMonitoringAgent', 'OmsAgentForLinux')]",
+        "mmaExtensionVersion": "[if(equals(toLower(parameters('osType')), 'windows'), '1.0', '1.4')]",
+        "sharedGalleryImageRef": {
+            "id": "[resourceId(parameters('shared-image-gallery-rg'),'Microsoft.Compute/galleries/images', parameters('shared-image-gallery-name'), parameters('shared-image-gallery-definition'))]"
+        },
+        "zones": [
+            "1",
+            "2",
+            "3"
+                ],
+        "win10ImageRef": {
+            "publisher": "MicrosoftWindowsDesktop",
+            "offer": "office-365",
+            "sku": "19h2-evd-o365pp",
+            "version": "latest"
+        }
+    },
+    "resources": [
+        {
+            "apiVersion": "2019-07-01",
+            "type": "Microsoft.Compute/virtualMachines",
+            "name": "[concat(parameters('rdsh-prefix'), copyindex(),'-avset')]",
+            "condition":"[equals(parameters('enableAvSets'),'true')]",
+            "location": "[resourceGroup().location]",
+            "copy": {
+                "name": "rdsh-vm-loop",
+                "count": "[parameters('instance-count')]"
+            },
+            "dependsOn": [],
+            "properties": {
+                "hardwareProfile": {
+                    "vmSize": "[parameters('vm-size')]"
+                },
+                "availabilitySet": {
+                    "id": "[variables('availability-set-id')]"
+                },
+                "osProfile": {
+                    "computerName": "[concat(parameters('rdsh-prefix'), copyindex())]",
+                    "adminUsername": "[variables('existing-domain-username')]",
+                    "adminPassword": "[parameters('administrator-account-password')]"
+                },
+                "storageProfile": {
+                    "imageReference": "[if(parameters('use-shared-image'), variables('sharedGalleryImageRef'), variables('win10ImageRef'))]",
+                    "osDisk": {
+                        "createOption": "FromImage",
+                        "managedDisk": {
+                            "storageAccountType": "[parameters('vm-disk-type')]",
+                            "diskEncryptionSet": {
+                                "id": "[parameters('diskEncryptionSetId')]"
+                            }
+                        }
+                    }
+                },
+                "networkProfile": {
+                    "networkInterfaces": [
+                        {
+                            "id": "[resourceId('Microsoft.Network/networkInterfaces',concat(parameters('rdsh-prefix'), copyindex(), '-nic'))]"
+                        }
+                    ]
+                },
+                "diagnosticsProfile": {
+                    "bootDiagnostics": {
+                        "enabled": false
+                    }
+                },
+                "licenseType": "Windows_Client"
+            }
+        },
+                {
+            "apiVersion": "2019-07-01",
+            "type": "Microsoft.Compute/virtualMachines",
+            "condition":"[equals(parameters('enableAvSets'),'false')]",
+            "name": "[concat(parameters('rdsh-prefix'), copyindex())]",
+            "zones":"[take(skip(variables('zones'),mod(copyIndex(),length(variables('zones')))),1)]",
+            "location": "[resourceGroup().location]",
+            "copy": {
+                "name": "rdsh-vm-loop",
+                "count": "[parameters('instance-count')]"
+            },
+            "dependsOn": [],
+            "properties": {
+                "hardwareProfile": {
+                    "vmSize": "[parameters('vm-size')]"
+                },
+                "osProfile": {
+                    "computerName": "[concat(parameters('rdsh-prefix'), copyindex())]",
+                    "adminUsername": "[variables('existing-domain-username')]",
+                    "adminPassword": "[parameters('administrator-account-password')]"
+                },
+                "storageProfile": {
+                    "imageReference": "[if(parameters('use-shared-image'), variables('sharedGalleryImageRef'), variables('win10ImageRef'))]",
+                    "osDisk": {
+                        "createOption": "FromImage",
+                        "managedDisk": {
+                            "storageAccountType": "[parameters('vm-disk-type')]",
+                            "diskEncryptionSet": {
+                                "id": "[parameters('diskEncryptionSetId')]"
+                            }
+                        }
+                    }
+                },
+                "networkProfile": {
+                    "networkInterfaces": [
+                        {
+                            "id": "[resourceId('Microsoft.Network/networkInterfaces',concat(parameters('rdsh-prefix'), copyindex(), '-nic'))]"
+                        }
+                    ]
+                },
+                "diagnosticsProfile": {
+                    "bootDiagnostics": {
+                        "enabled": false
+                    }
+                },
+                "licenseType": "Windows_Client"
+            }
+        },
+        {
+            "type": "Microsoft.Compute/virtualMachines/extensions",
+            "apiVersion": "2019-12-01",
+            "name": "[concat(parameters('rdsh-prefix'), copyindex(), '/', variables('daExtensionName'))]",
+            "location": "[resourceGroup().location]",
+            "copy": {
+                "name": "rdsh-vm-loop",
+                "count": "[parameters('instance-count')]"
+            },
+            "dependsOn": [
+                "[concat(parameters('rdsh-prefix'), copyindex(),'-avset')]",
+                "[concat(parameters('rdsh-prefix'), copyindex())]"
+            ],
+            "properties": {
+                "publisher": "Microsoft.Azure.Monitoring.DependencyAgent",
+                "type": "[variables('daExtensionType')]",
+                "typeHandlerVersion": "[variables('daExtensionVersion')]",
+                "autoUpgradeMinorVersion": true,
+                "settings": {}
+            }
+        },
+        {
+            "type": "Microsoft.Compute/virtualMachines/extensions",
+            "apiVersion": "2017-12-01",
+            "name": "[concat(parameters('rdsh-prefix'), copyindex(), '/', variables('mmaExtensionName'))]",
+            "location": "[resourceGroup().location]",
+            "copy": {
+                "name": "rdsh-vm-loop",
+                "count": "[parameters('instance-count')]"
+            },
+            "dependsOn": [
+                "[concat(parameters('rdsh-prefix'), copyindex(),'-avset')]",
+                "[concat(parameters('rdsh-prefix'), copyindex())]"
+            ],
+            "properties": {
+                "publisher": "Microsoft.EnterpriseCloud.Monitoring",
+                "type": "[variables('mmaExtensionType')]",
+                "typeHandlerVersion": "[variables('mmaExtensionVersion')]",
+                "autoUpgradeMinorVersion": true,
+                "settings": {
+                    "workspaceId": "[reference(parameters('workspaceId'), '2015-03-20').customerId]",
+                    "stopOnMultipleConnections": true
+                },
+                "protectedSettings": {
+                    "workspaceKey": "[listKeys(parameters('workspaceId'), '2015-03-20').primarySharedKey]"
+                }
+            }
+        }
+    ],
+    "outputs": {}
+}

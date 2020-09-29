@@ -1,0 +1,146 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "netAppAccounts_name": {
+            "type": "string"
+        },
+        "location": {
+            "type": "string",
+            "defaultValue":"[resourceGroup().location]"
+        },
+        "netAppAccounts_pool": {
+            "type": "string"
+        },
+        "netAppAccounts_volume": {"type":"string"},
+        "usageThreshold":{
+            "type": "int",
+            "metadata": {
+                "description": "Provisioned size of the pool (in bytes). "
+            },
+            "defaultValue": 107374182400
+        },
+        "numberOfVolumes": {
+            "type": "int",
+            "defaultValue": 1
+        },
+        "serviceLevel": {
+            "type": "string",
+            "allowedValues": [
+                "Standard",
+                "Premium",
+                "Ultra"
+            ],
+            "defaultValue":"Standard"
+        },
+            "VaultName": {
+            "type": "string",
+            "metadata": {
+                "description": "The name of the keyvault that contains the secret."
+            }
+        },
+        "VaultResourceGroupName": {
+            "type": "string",
+            "metadata": {
+                "description": "The name of the resource group that contains the keyvault."
+            }
+        },
+        "VaultSubscriptionId": {
+            "type": "string",
+            "defaultValue": "[subscription().subscriptionId]",
+            "metadata": {
+                "description": "The name of the subscription that contains the keyvault."
+            }
+        }
+  
+    },
+    "variables": {
+        "apiVersion": "2020-02-01",
+        "keyVaultID":"[resourceId(parameters('VaultSubscriptionId'), parameters('VaultResourceGroupName'), 'Microsoft.KeyVault/vaults', parameters('VaultName'))]",
+        "secretName":"subnetid-netapp"
+    },
+    "resources": [
+                {
+            "apiVersion": "2018-05-01",
+            "name": "[concat('NetAppCapacityPool-Nestedtemplate-', parameters('netAppAccounts_volume'),copyIndex())]",
+            "type": "Microsoft.Resources/deployments",
+            "resourceGroup": "[resourceGroup().name]",
+            "copy": {
+                                "name": "netappvolumecount",
+                                "count":"[parameters('numberOfVolumes')]"
+                            },
+            "properties": {
+                "mode": "Incremental",
+                "expressionEvaluationOptions": {
+                "scope":"inner"
+            },
+            "parameters":{
+                "location": {"value": "[parameters('location')]"},
+                "netAppAccounts_name":{"value":"[parameters('netAppAccounts_name')]"},
+                "netAppAccounts_pool":{"value":"[parameters('netAppAccounts_pool')]"},
+                "netAppAccounts_volume":{"value":"[concat(parameters('netAppAccounts_volume'),copyIndex())]"},
+                "subnetid":{"reference":{
+                        "keyVault":{
+                            "id":"[variables('keyVaultID')]"
+                        },
+                        "secretName":"[variables('secretName')]"
+                    }},
+                "usageThreshold":{"value":"[parameters('usageThreshold')]"},
+                "serviceLevel":{"value":"[parameters('serviceLevel')]"},
+                "protocolTypes": {"value": ["CIFS"]},
+                "snapshotDirectoryVisible": {"value": true},
+                "apiVersion":{"value":"[variables('apiVersion')]"}
+            },
+                "template": {
+                    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+                    "contentVersion": "1.0.0.0",
+                    "parameters" : {
+                        "location": {"type":"string"},
+                        "netAppAccounts_name": {"type":"string"},
+                        "netAppAccounts_pool": {"type":"string"},
+                        "netAppAccounts_volume": {"type":"string"},
+                        "subnetId": {"type": "string"},
+                        "usageThreshold":{"type":"int"},
+                        "serviceLevel": {"type": "string"},
+                        "protocolTypes":{"type": "array"},
+                        "snapshotDirectoryVisible": {"type": "bool"},
+                        "apiVersion":{"type": "string"}
+                    },
+                    "variables":{},
+                    "resources": [
+                        {
+                            "apiVersion": "[parameters('apiVersion')]",
+                            "name": "[concat(parameters('netAppAccounts_name'), '/', parameters('netAppAccounts_pool'), '/',parameters('netAppAccounts_volume'))]",
+                            "type": "Microsoft.NetApp/netAppAccounts/capacityPools/volumes",
+                            "location": "[parameters('location')]",
+                            "properties": {
+                                    "serviceLevel": "[parameters('serviceLevel')]",
+                                    "usageThreshold": "[parameters('usageThreshold')]",
+                                    "creationToken": "[parameters('netAppAccounts_volume')]",
+                                    "subnetId": "[parameters('subnetId')]",
+                                    "protocolTypes": "[parameters('protocolTypes')]",
+                                    "snapshotDirectoryVisible": "[parameters('snapshotDirectoryVisible')]"
+                            }
+                        }
+                    ],
+                    "outputs": {
+                                "NetAppVolume": {
+                                    "type": "object",
+                                    "value":"[reference(parameters('netAppAccounts_volume')).mountTargets[0]]"
+        }
+                    }
+                }
+            },
+            "dependsOn": []
+}
+    ],
+    "outputs" : {
+            "NetAppVolumesmbFQDN": {
+                "type": "array",
+                "copy": {
+                    "count":"[parameters('numberOfVolumes')]",
+                    "input": "[reference(concat('NetAppCapacityPool-Nestedtemplate-', parameters('netAppAccounts_volume'),copyIndex())).outputs.NetAppVolume.value.smbServerFQDN]"
+                }
+            }
+    }
+}

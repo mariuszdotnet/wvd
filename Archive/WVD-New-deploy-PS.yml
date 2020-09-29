@@ -1,0 +1,80 @@
+# Starter pipeline
+# Start with a minimal pipeline that you can customize to build and deploy your code.
+# Add steps that build, run tests, deploy, and more:
+# https://aka.ms/yaml
+
+trigger:
+  - none
+
+pr:
+  - none
+
+pool:
+  name: Hosted Windows 2019 with VS2019
+  demands: azureps
+
+variables:
+  - name: SUBSCRIPTIONID
+    value: 1965c25a-b7fd-48b5-a393-c9e785c1c4d9
+  - name: SESSIONHOSTRESOURCEGROUPNAME
+    value: Azureminilab-WVD
+  - name: WORKSPACERESOURCEGROUPNAME
+    value: Azureminilab-WVDRoot
+  - name: LOCATION
+    value: canadacentral
+  - name: HOSTPOOLNAME
+    value: poolA
+  - name: WORKSPACENAME
+    value: "Azureminilab-EAS2"
+
+stages:
+  # Create Prep Deployment
+  - stage: Prep_Deployment
+    displayName: Prep Deployment
+    jobs:
+      - job: Download_Repo
+        displayName: Download the Repo
+        steps:
+          - checkout: self
+            displayName: Clone Git Repo
+
+          - task: PowerShell@2
+            displayName: List Git Repo Content
+            inputs:
+              targetType: "inline"
+              script: "ls"
+
+          - task: AzureFileCopy@4
+            inputs:
+              azureSubscription: "AzDevOPS"
+              SourcePath: '$(Build.Repository.LocalPath)\*'
+              Destination: "AzureBlob"
+              storage: "azminlandevops"
+              ContainerName: "templates"
+              sasTokenTimeOutInMinutes: "240"
+
+  - stage: Create_Workspace
+    displayName: Create Workspace
+    jobs:
+      - job: Create_Workspace
+        displayName: Create Workspace
+        steps:
+          - task: AzurePowerShell@5
+            inputs:
+              azureSubscription: "AzDevOPS"
+              ScriptType: "FilePath"
+              ScriptPath: "Deploy-New-Workspace.ps1"
+              azurePowerShellVersion: "LatestVersion"
+
+  - stage: Create_HostPool_AppGroup
+    displayName: Create Host Pool and Application Group
+    jobs:
+      - job: Create_Host_Pool_App_Group
+        displayName: Create Host Pool and Application Group
+        steps:
+          - task: AzurePowerShell@5
+            inputs:
+              azureSubscription: "AzDevOPS"
+              ScriptType: "FilePath"
+              ScriptPath: "Deploy-New-HostPool-Add-Workspace.ps1"
+              azurePowerShellVersion: "LatestVersion"

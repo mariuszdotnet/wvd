@@ -1,0 +1,34 @@
+trigger:
+  - none
+
+pr:
+  - none
+
+pool:
+  name: Hosted Windows 2019 with VS2019
+  demands: azureps
+
+parameters:
+  - name: targetRegion
+    displayName: Target Azure Region for deployment
+    type: string
+    default: canadacentral
+    values:
+      - canadacentral
+      - canadaeast
+
+  - name: targetContainer
+    displayName: Target Host Container
+    type: string
+    values:
+      - blue
+      - green
+
+extends:
+  template: pipeline/base-wvd-pipeline.yml
+  parameters:
+    targetRegion: ${{ parameters.targetRegion }}
+    targetContainer: ${{ parameters.targetContainer }}
+    podId: "POD01"
+    persona: DEV
+    environment: SBX

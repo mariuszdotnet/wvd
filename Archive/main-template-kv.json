@@ -1,0 +1,221 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "vault-name": {
+            "type": "string",
+            "metadata": {
+                "description": "The name of the keyvault that contains the secret."
+            }
+        },
+        "vault-resourcegroup-name": {
+            "type": "string",
+            "metadata": {
+                "description": "The name of the resource group that contains the keyvault."
+            }
+        },
+        "vault-subscription-id": {
+            "type": "string",
+            "defaultValue": "[subscription().subscriptionId]",
+            "metadata": {
+                "description": "The name of the subscription that contains the keyvault."
+            }
+        },
+        "artifactsLocationSasToken": {
+            "type": "securestring"
+        }
+    },
+    "functions": [],
+    "variables": {},
+    "resources": [
+        {
+            "type": "Microsoft.Resources/deployments",
+            "apiVersion": "2018-05-01",
+            "name": "InnerTemplate",
+            "properties": {
+                "mode": "Incremental",
+                "expressionEvaluationOptions": {
+                    "scope": "inner"
+                },
+                "template": {
+                    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+                    "contentVersion": "1.0.0.0",
+                    "parameters": {
+                        "utc-value": {
+                            "type": "string",
+                            "defaultValue": "[utcNow()]"
+                        },
+                        "subnet-id": {
+                            "type": "string",
+                            "metadata": {
+                                "description": "The unique id of the subnet for the nics."
+                            }
+                        },
+                        "admin-account-password": {
+                            "type": "securestring",
+                            "metadata": {
+                                "description": "Admin account passoword for domain join."
+                            }
+                        },
+                        "host-pool-resource-group": {
+                            "type": "string",
+                            "defaultValue": "aib-wvd-hostpool-rg",
+                            "metadata": {
+                                "description": "The name of the  hostpool resource group."
+                            }
+                        },
+                        "_artifactsLocation": {
+                            "type": "string",
+                            "defaultValue": "https://azminlandevops.blob.core.windows.net/"
+                        },
+                        "artifactsLocationSasToken": {
+                            "type": "securestring"
+                        }
+                    },
+                    "variables": {
+                        "hostpool-token-deployment-name": "[concat('get-hostpool-token-',parameters('utc-value'))]",
+                        "availability-set-deployment-name": "[concat('compute-availabilitysets-',parameters('utc-value'))]",
+                        "network-iterfaces-deployment-name": "[concat('network-interfaces-',parameters('utc-value'))]",
+                        "virtual-machines-deployment-name": "[concat('virtual-machines-',parameters('utc-value'))]",
+                        "domain-join-ext-deployment-name": "[concat('domain-join-ext-',parameters('utc-value'))]",
+                        "add-session-host-ext-deployment-name": "[concat('add-session-host-',parameters('utc-value'))]",
+                        "templateURI": "[concat(parameters('_artifactsLocation'),'templates/arm-templates/')]"
+                    },
+                    "resources": [
+                        // Get Hostpool Token
+                        {
+                            "type": "Microsoft.Resources/deployments",
+                            "apiVersion": "2019-10-01",
+                            "name": "[variables('hostpool-token-deployment-name')]",
+                            "resourceGroup": "[parameters('host-pool-resource-group')]",
+                            "properties": {
+                                "mode": "Incremental",
+                                "templateLink": {
+                                    //"uri":"https://raw.githubusercontent.com/mariuszdotnet/azure-image-builder-wvd/master/arm-templates/desktopvirtualization-hostpools.json",
+                                    "uri": "[concat(variables('templateURI'),'desktopvirtualization-hostpools.json',parameters('artifactsLocationSasToken'))]",
+                                    "contentVersion": "1.0.0.0"
+                                }
+                            }
+                        },
+                        // Deploy Availability Set
+                        {
+                            "type": "Microsoft.Resources/deployments",
+                            "apiVersion": "2019-10-01",
+                            "name": "[variables('availability-set-deployment-name')]",
+                            "properties": {
+                                "mode": "Incremental",
+                                "templateLink": {
+                                    //"uri":"https://raw.githubusercontent.com/mariuszdotnet/azure-image-builder-wvd/master/arm-templates/compute-availabilitysets.json",
+                                    "uri": "[concat(variables('templateURI'),'compute-availabilitysets.json',parameters('artifactsLocationSasToken'))]",
+                                    "contentVersion": "1.0.0.0"
+                                }
+                            }
+                        },
+                        // Deploy Network Interfaces
+                        {
+                            "type": "Microsoft.Resources/deployments",
+                            "apiVersion": "2019-10-01",
+                            "name": "[variables('network-iterfaces-deployment-name')]",
+                            "dependsOn": [
+                            ],
+                            "properties": {
+                                "mode": "Incremental",
+                                "parameters": {
+                                    "subnet-id": { "value": "[parameters('subnet-id')]" }
+                                },
+                                "templateLink": {
+                                    //"uri":"https://raw.githubusercontent.com/mariuszdotnet/azure-image-builder-wvd/master/arm-templates/network-networkinterfaces.json",
+                                    "uri": "[concat(variables('templateURI'),'network-networkinterfaces.json',parameters('artifactsLocationSasToken'))]",
+                                    "contentVersion": "1.0.0.0"
+                                }
+                            }
+                        },
+                        // Deploy Virtual Machines
+                        {
+                            "type": "Microsoft.Resources/deployments",
+                            "apiVersion": "2019-10-01",
+                            "name": "[variables('virtual-machines-deployment-name')]",
+                            "dependsOn": [
+                                "[variables('network-iterfaces-deployment-name')]",
+                                "[variables('availability-set-deployment-name')]"
+                            ],
+                            "properties": {
+                                "mode": "Incremental",
+                                "parameters": {},
+                                "templateLink": {
+                                    // "uri":"https://raw.githubusercontent.com/mariuszdotnet/azure-image-builder-wvd/master/arm-templates/compute-virtualmachines.json",
+                                    "uri": "[concat(variables('templateURI'),'compute-virtualmachines.json',parameters('artifactsLocationSasToken'))]",
+                                    "contentVersion": "1.0.0.0"
+                                }
+                            }
+                        },
+                        // Deploy Domain Join Extension
+                        {
+                            "type": "Microsoft.Resources/deployments",
+                            "apiVersion": "2019-10-01",
+                            "name": "[variables('domain-join-ext-deployment-name')]",
+                            "dependsOn": [
+                                "[variables('virtual-machines-deployment-name')]"
+                            ],
+                            "properties": {
+                                "mode": "Incremental",
+                                "parameters": {
+                                    "admin-account-password": { "value": "[parameters('admin-account-password')]" }
+                                },
+                                "templateLink": {
+                                    // "uri":"https://raw.githubusercontent.com/mariuszdotnet/azure-image-builder-wvd/master/arm-templates/extensions-jsonaddomainextension.json",
+                                    "uri": "[concat(variables('templateURI'),'extensions-jsonaddomainextension.json',parameters('artifactsLocationSasToken'))]",
+                                    "contentVersion": "1.0.0.0"
+                                }
+                            }
+                        },
+                        // Deploy DSC Add Session Host Extension
+                        {
+                            "type": "Microsoft.Resources/deployments",
+                            "apiVersion": "2019-10-01",
+                            "name": "[variables('add-session-host-ext-deployment-name')]",
+                            "dependsOn": [
+                                "[variables('domain-join-ext-deployment-name')]",
+                                "[variables('hostpool-token-deployment-name')]"
+                            ],
+                            "properties": {
+                                "mode": "Incremental",
+                                "parameters": {
+                                    //"host-pool-token":{"value": "[parameters('host-pool-token')]"}
+                                    "host-pool-token": { "value": "[reference(variables('hostpool-token-deployment-name')).outputs.hostpooltoken.value]" }
+                                },
+                                "templateLink": {
+                                    //"uri":"https://raw.githubusercontent.com/mariuszdotnet/azure-image-builder-wvd/master/arm-templates/extensions-dsc-addsessionhost.json",
+                                    "uri": "[concat(variables('templateURI'),'extensions-dsc-addsessionhost.json',parameters('artifactsLocationSasToken'))]",
+                                    "contentVersion": "1.0.0.0"
+                                }
+                            }
+                        }
+                    ],
+                    "outputs": {}
+                },
+                "parameters": {
+                    "subnet-id": {
+                        "reference": {
+                            "keyVault": {
+                                "id": "[resourceId(parameters('vault-subscription-id'), parameters('vault-resourcegroup-name'), 'Microsoft.KeyVault/vaults', parameters('vault-name'))]"
+                            },
+                            "secretName": "subnet-id"
+                        }
+                    },
+                    "admin-account-password": {
+                        "reference": {
+                            "keyVault": {
+                                "id": "[resourceId(parameters('vault-subscription-id'), parameters('vault-resourcegroup-name'), 'Microsoft.KeyVault/vaults', parameters('vault-name'))]"
+                            },
+                            "secretName": "admin-account-password"
+                        }
+                    },
+                    "artifactsLocationSasToken": {
+                        "value": "[parameters('artifactsLocationSasToken')]"
+                    }
+                }
+            }
+        }
+    ]
+}

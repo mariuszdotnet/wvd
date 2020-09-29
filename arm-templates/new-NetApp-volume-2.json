@@ -1,0 +1,75 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "netAppAccounts_name": {
+            "type": "string"
+        },
+        "location": {
+            "type": "string",
+            "defaultValue": "[resourceGroup().location]"
+        },
+        "netAppAccounts_pool": {
+            "type": "string"
+        },
+        "netAppAccounts_volume": {
+            "type": "string"
+        },
+        "subnetId": {
+            "type": "string",
+            "metadata": {
+                "description": "Subnet Resource ID to mount the volume"
+            }
+        },
+        "usageThreshold": {
+            "type": "int",
+            "metadata": {
+                "description": "Provisioned size of the pool (in bytes). "
+            },
+            "defaultValue": 107374182400
+        },
+        "serviceLevel": {
+            "type": "string",
+            "allowedValues": [
+                "Standard",
+                "Premium",
+                "Ultra"
+            ],
+            "defaultValue": "Standard"
+        },
+        "protocolTypes": {
+            "type": "array",
+            "defaultValue": [ "CIFS" ]
+        },
+        "snapshotDirectoryVisible": {
+            "type": "bool",
+            "defaultValue": true
+        }
+    },
+    "variables": {
+        "apiVersion": "2020-02-01",
+        "volumeResourceName": "[concat(parameters('netAppAccounts_name'), '/', parameters('netAppAccounts_pool'), '/',parameters('netAppAccounts_volume'))]"
+    },
+    "resources": [
+        {
+            "apiVersion": "[variables('apiVersion')]",
+            "name": "[variables('volumeResourceName')]",
+            "type": "Microsoft.NetApp/netAppAccounts/capacityPools/volumes",
+            "location": "[parameters('location')]",
+            "properties": {
+                "serviceLevel": "[parameters('serviceLevel')]",
+                "usageThreshold": "[parameters('usageThreshold')]",
+                "creationToken": "[parameters('netAppAccounts_volume')]",
+                "subnetId": "[parameters('subnetId')]",
+                "protocolTypes": "[parameters('protocolTypes')]",
+                "snapshotDirectoryVisible": "[parameters('snapshotDirectoryVisible')]"
+            }
+        }
+    ],
+    "outputs": {
+        "NetAppVolumeFQDN": {
+            "type": "string",
+            "value": "[reference(parameters('netAppAccounts_volume')).mountTargets[0].smbServerFQDN]"
+        }
+    }
+}

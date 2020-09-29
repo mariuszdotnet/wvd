@@ -1,0 +1,38 @@
+# Pipleine for deploying multiple pods supporting a single persona
+
+trigger:
+  - none
+
+pr:
+  - none
+
+pool:
+  name: Hosted Windows 2019 with VS2019
+  demands: azureps
+
+parameters:
+
+  - name: targetContainer
+    displayName: Target Host Container
+    type: string
+    values:
+      - BLUE
+      - GREEN
+
+extends:
+  template: pipeline/wvd-pipeline.yml
+  parameters:
+    personaId: PR01
+    personaName: Developers
+    primaryRegion: canadacentral
+    primaryRegionCode: CACN
+    image: WIN10
+    targetContainer: ${{ parameters.targetContainer }}
+    pods:
+      - podId: POD01
+        numberOfVMs: 10
+      - podId: POD02
+        numberOfVMs: 5
+      - podId: POD03
+        numberOfVMs: 3
+

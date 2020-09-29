@@ -1,0 +1,48 @@
+# Pipleine for deploying multiple pods supporting a single persona
+
+trigger:
+  - none
+
+pr:
+  - none
+
+pool:
+  name: Hosted Windows 2019 with VS2019
+  demands: azureps
+
+parameters:
+
+  - name: targetContainer
+    displayName: Target Host Container
+    type: string
+    values:
+      - BLUE
+      - GREEN
+
+  - name: swapUsers
+    displayName: Swap Users
+    type: boolean
+    default: true
+
+variables:
+  - template: pipeline/vars.yml
+
+extends:
+  template: pipeline/wvd-pipeline.yml
+  parameters:
+    personaId: PR02
+    personaName: Developers
+    primaryRegion: westus2
+    primaryRegionCode: WUS2
+    image: WIN10
+    targetContainer: ${{ parameters.targetContainer }}
+    environment: TGD
+    swapUsers: ${{ parameters.swapUsers }}
+    pods:
+      - podId: POD01
+        numberOfVMs: 3
+      - podId: POD02
+        numberOfVMs: 2
+      - podId: POD03
+        numberOfVMs: 2
+

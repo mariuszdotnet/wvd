@@ -1,0 +1,150 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "neworExistingKeyVault": {
+            "type": "string"
+        },
+        "keyVaultName": {
+            "type": "string"
+        },
+        "AzDevOpsSPN": {
+            "type": "string"
+        },
+        "workspaceId": {
+            "type": "string"
+           // "defaultValue":"/subscriptions/1965c25a-b7fd-48b5-a393-c9e785c1c4d9/resourcegroups/azureminilab-la/providers/microsoft.operationalinsights/workspaces/azureminilab2019"
+        },
+        "enableSoftDelete": {
+          "type": "bool",
+          "defaultValue": true
+        },
+
+        "enablePurgeProtection":{
+          "type": "bool",
+          "defaultValue": true
+        },
+
+        "location": {
+            "type": "string",
+           "defaultValue": "[resourceGroup().location]"
+        },
+        "secretsObject": {
+        "type": "secureObject",
+        "metadata": {
+        "description": "Specifies all secrets {\"secretName\":\"\",\"secretValue\":\"\"} wrapped in a secure object."
+            }
+        }
+    },
+    "functions": [],
+    "variables": {
+        "enabledForDeployment":true,
+        "enabledForDiskEncryption": false,
+        "enabledForTemplateDeployment": true,
+        "enableSoftDelete": true,
+        "enablePurgeProtection": true,
+        "tenantId": "[subscription().tenantId]",
+        "skuName": "Standard",
+        "settingName": "Send_to_LGA"
+        },
+    "resources": [
+    {
+      "condition":"[equals(parameters('newOrExistingKeyVault'),'newKeyVault')]",
+      "type": "Microsoft.KeyVault/vaults",
+      "name": "[parameters('keyVaultName')]",
+      "apiVersion": "2018-02-14",
+      "location": "[parameters('location')]",
+      "properties": {
+        "enabledForDeployment": "[variables('enabledForDeployment')]",
+        "enabledForDiskEncryption": "[variables('enabledForDiskEncryption')]",
+        "enabledForTemplateDeployment": "[variables('enabledForTemplateDeployment')]",
+        "enableSoftDelete": "[parameters('enableSoftDelete')]",
+        "enablePurgeProtection":"[parameters('enablePurgeProtection')]",
+        "tenantId": "[variables('tenantId')]",
+        "accessPolicies": [
+            {
+                "objectId":"[parameters('AzDevOpsSPN')]",
+                "tenantId": "[variables('tenantId')]",
+                "permissions": {
+                            "keys": [
+                                "Get",
+                                "List",
+                                "Update",
+                                "Create",
+                                "Import",
+                                "Delete",
+                                "Recover",
+                                "Backup",
+                                "Restore"
+                            ],
+                            "secrets": [
+                                "Get",
+                                "List",
+                                "Set",
+                                "Delete",
+                                "Recover",
+                                "Backup",
+                                "Restore"
+                            ],
+                            "certificates": []
+                        }
+            }
+        ],
+        "sku": {
+          "name": "[variables('skuName')]",
+          "family": "A"
+        },
+        "networkAcls": {
+            "defaultAction": "Allow",
+            "bypass": "AzureServices"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.KeyVault/vaults/secrets",
+      "name": "[concat(parameters('keyVaultName'), '/', parameters('secretsObject').secrets[copyIndex()].secretName)]",
+      "apiVersion": "2018-02-14",
+      "copy": {
+        "name": "secretCopy",
+        "count": "[length(parameters('secretsObject').secrets)]"
+      },
+      "properties": {
+        "value": "[parameters('secretsObject').secrets[copyIndex()].secretValue]"
+      },
+      "dependsOn": [ "[concat('Microsoft.KeyVault/vaults/',parameters('keyVaultName'))]" ]
+    },
+
+    {
+    "type": "Microsoft.KeyVault/vaults/providers/diagnosticSettings",
+    "name": "[concat(parameters('keyVaultName'),'/microsoft.Insights/', variables('settingName'))]",
+    "dependsOn": ["[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]"],
+     "apiVersion": "2017-05-01-preview",
+     "properties":{
+        "name": "[variables('settingName')]",
+        "workspaceId": "[parameters('workspaceId')]",
+        "logs": [
+        {
+          "category": "AuditEvent",
+          "enabled": true
+        }
+         ],
+        "metrics": [
+        {
+          "category": "AllMetrics",
+          "enabled": true
+        }
+      ]
+     }
+        }
+    ],
+    "outputs": {
+    "keyvaultName": {
+      "type": "string",
+      "value": "[parameters('keyVaultName')]"
+    },
+    "keyvaultResourceId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.KeyVault/vaults',parameters('keyvaultName'))]"
+    }
+    }
+}

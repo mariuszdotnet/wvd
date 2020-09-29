@@ -1,0 +1,79 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "instance-count": {
+            "type": "int",
+            "metadata": {
+                "description": "Number of session hosts that will be created and added to the hostpool."
+            },
+            "defaultValue": 2
+        },
+        "rdsh-prefix": {
+            "type": "string",
+            "metadata": {
+                "description": "This prefix will be used in combination with the VM number to create the VM name. This value includes the dash, so if using “rdsh” as the prefix, VMs would be named “rdsh-0”, “rdsh-1”, etc. You should use a unique prefix to reduce name collisions in Active Directory."
+            },
+            "defaultValue": "rdsh"
+        },
+        "domain": {
+            "type": "string",
+            "metadata": {
+                "description": "Domain to join"
+            },
+            "defaultValue": "azureminilab.com"
+        },
+        "ou-path": {
+            "type": "string",
+            "metadata": {
+                "description": "OU Path"
+            },
+            "defaultValue": ""
+        },
+        "admin-account-user": {
+            "type": "string",
+            "metadata": {
+                "description": "Admin account username."
+            },
+            "defaultValue": "azadmin@azureminilab.com"
+        },
+        "admin-account-password": {
+            "type": "securestring",
+            "metadata": {
+                "description": "Admin account password for domain join."
+            }
+        }
+    },
+    "functions": [],
+    "variables": {},
+    "resources": [
+        {
+            "apiVersion": "2018-10-01",
+            "type": "Microsoft.Compute/virtualMachines/extensions",
+            "name": "[concat(parameters('rdsh-prefix'), copyindex(), '/', 'joindomain')]",
+            "location": "[resourceGroup().location]",
+            "dependsOn": [],
+            "copy": {
+                "name": "rdsh-domain-join-loop",
+                "count": "[parameters('instance-count')]"
+            },
+            "properties": {
+                "publisher": "Microsoft.Compute",
+                "type": "JsonADDomainExtension",
+                "typeHandlerVersion": "1.3",
+                "autoUpgradeMinorVersion": true,
+                "settings": {
+                    "name": "[parameters('domain')]",
+                    "ouPath": "[parameters('ou-path')]",
+                    "user": "[parameters('admin-account-user')]",
+                    "restart": "true",
+                    "options": "3"
+                },
+                "protectedSettings": {
+                    "password": "[parameters('admin-account-password')]"
+                }
+            }
+        }
+    ],
+    "outputs": {}
+}

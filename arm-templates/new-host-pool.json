@@ -1,0 +1,281 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+          "utc-value": {
+            "type": "string",
+            "defaultValue": "[utcNow('u')]"
+        },        
+        "workspaceId": {
+            "type": "string"
+        },
+        "hostpoolName": {
+            "type": "string",
+            "metadata": {
+                "description": "The name of the Hostpool to be created."
+            }
+        },
+        "hostpoolFriendlyName": {
+            "type": "string",
+            "metadata": {
+                "description": "The friendly name of the Hostpool to be created."
+            },
+            "defaultValue": ""
+        },
+        "hostpoolDescription": {
+            "type": "string",
+            "metadata": {
+                "description": "The description of the Hostpool to be created."
+            },
+            "defaultValue": ""
+        },
+        "location": {
+            "type": "string",
+            "metadata": {
+                "description": "The location where the resources will be deployed."
+            },
+            "defaultValue": "eastus2"
+        },
+        "workSpaceName": {
+            "type": "string",
+            "metadata": {
+                "description": "The name of the workspace to be attach to new Applicaiton Group."
+            },
+            "defaultValue": ""
+        },
+        "appGroupName": {
+            "type": "string"
+        },
+        "allApplicationGroupReferences": {
+            "type": "string",
+            "metadata": {
+                "description": "The existing app groups references of the workspace selected."
+            },
+            "defaultValue": ""
+        },
+        "addToWorkspace": {
+            "type": "bool",
+            "metadata": {
+                "description": "Whether to add applicationGroup to workspace."
+            },
+            "defaultValue":false
+        },
+        "hostpoolType": {
+            "type": "string",
+            "allowedValues": [
+                "Personal",
+                "Pooled"
+            ],
+            "metadata": {
+                "description": "Set this parameter to Personal if you would like to enable Persistent Desktop experience. Defaults to false."
+            },
+            "defaultValue": "Personal"
+        },
+        "personalDesktopAssignmentType": {
+            "type": "string",
+            "allowedValues": [
+                "Automatic",
+                "Direct",
+                ""
+            ],
+            "metadata": {
+                "description": "Set the type of assignment for a Personal hostpool type"
+            },
+            "defaultValue": "Automatic"
+        },
+        "maxSessionLimit": {
+            "type": "int",
+            "metadata": {
+                "description": "Maximum number of sessions."
+            },
+            "defaultValue": 99999
+        },
+        "loadBalancerType": {
+            "type": "string",
+            "allowedValues": [
+                "BreadthFirst",
+                "DepthFirst",
+                "Persistent"
+            ],
+            "metadata": {
+                "description": "Type of load balancer algorithm."
+            },
+            "defaultValue": "BreadthFirst"
+        },
+        "customRdpProperty": {
+            "type": "string",
+            "metadata": {
+                "description": "Hostpool rdp properties"
+            },
+            "defaultValue": ""
+        },
+        "hostpoolTags": {
+            "type": "object",
+            "metadata": {
+                "description": "The tags to be assigned to the hostpool"
+            },
+            "defaultValue": {}
+        },
+        "applicationGroupTags": {
+            "type": "object",
+            "metadata": {
+                "description": "The tags to be assigned to the application group"
+            },
+            "defaultValue": {}
+        },
+        "apiVersion": {
+            "type": "string",
+            "metadata": {
+                "description": "WVD api version"
+            },
+            "defaultValue": "2019-12-10-preview"
+        },
+        "validationEnvironment": {
+            "type": "bool",
+            "metadata": {
+                "description": "Whether to use validation enviroment."
+            },
+            "defaultValue": false
+        }
+    },
+    "variables": {
+        "settingName": "Send_to_LGA",
+        "registration-token-expiration-time": "[dateTimeAdd(parameters('utc-value'), 'P7D')]",
+        "hostpoolName": "[replace(parameters('hostpoolName'),'\"','')]",
+        "hostpoolFriendlyName": "[parameters('hostpoolFriendlyName')]",
+        "appGroupName": "[concat(variables('hostpoolName'),'-DAG')]",
+        "appGroupResourceId": "[createArray(resourceId('Microsoft.DesktopVirtualization/applicationgroups/', parameters('appGroupName')))]",
+        //"workspaceResourceGroup": "[if(empty(parameters('workspaceResourceGroup')), parameters('TargetresourceGroup'), parameters('workspaceResourceGroup'))]",
+        "workspaceResourceGroup": "[resourceGroup().name]",
+        "applicationGroupReferencesArr": "[if(equals('',parameters('allApplicationGroupReferences')), variables('appGroupResourceId'), concat(split(parameters('allApplicationGroupReferences'),','), variables('appGroupResourceId')))]"
+    },
+    "resources": [
+        {
+            "name": "[parameters('hostpoolName')]",
+            "apiVersion": "[parameters('apiVersion')]",
+            "type": "Microsoft.DesktopVirtualization/hostpools",
+            "location": "[parameters('location')]",
+            "tags": "[parameters('hostpoolTags')]",
+            "properties": {
+                "friendlyName": "[parameters('hostpoolFriendlyName')]",
+                "description": "[parameters('hostpoolDescription')]",
+                "hostpoolType": "[parameters('hostpoolType')]",
+                "customRdpProperty": "[parameters('customRdpProperty')]",
+                "personalDesktopAssignmentType": "[parameters('personalDesktopAssignmentType')]",
+                "maxSessionLimit": "[parameters('maxSessionLimit')]",
+                "loadBalancerType": "[parameters('loadBalancerType')]",
+                "validationEnvironment": "[parameters('validationEnvironment')]",
+                "ring": null,
+                "registrationInfo": {
+                    "expirationTime": "[variables('registration-token-expiration-time')]",
+                    "token": null,
+                    "registrationTokenOperation": "Update"
+                }
+            }
+        },
+        {
+            "name": "[parameters('appGroupName')]",
+            "apiVersion": "[parameters('apiVersion')]",
+            "type": "Microsoft.DesktopVirtualization/applicationgroups",
+            "location": "[parameters('location')]",
+            "tags": "[parameters('applicationGroupTags')]",
+            "properties": {
+                "hostpoolarmpath": "[resourceId('Microsoft.DesktopVirtualization/hostpools/', parameters('hostpoolName'))]",
+                "friendlyName": "[parameters('appGroupName')]",
+                "description": "Desktop Application Group created through Az DevOps Pipeline",
+                "applicationGroupType": "Desktop"
+            },
+            "dependsOn": [
+                "[resourceId('Microsoft.DesktopVirtualization/hostpools/', parameters('hostpoolName'))]"
+            ]
+        },
+        {
+            "apiVersion": "2018-05-01",
+            "name": "[concat('Workspace-linkedTemplate-', parameters('workSpaceName'))]",
+            "type": "Microsoft.Resources/deployments",
+            "resourceGroup": "[variables('workspaceResourceGroup')]",
+            "condition": "[parameters('addToWorkspace')]",
+            "properties": {
+                "mode": "Incremental",
+                "template": {
+                    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+                    "contentVersion": "1.0.0.0",
+                    "resources": [
+                        {
+                            "apiVersion": "[parameters('apiVersion')]",
+                            "name": "[parameters('workSpaceName')]",
+                            "type": "Microsoft.DesktopVirtualization/workspaces",
+                            "location": "[parameters('location')]",
+                            "properties": {
+                                "applicationGroupReferences": "[variables('applicationGroupReferencesArr')]"
+                            }
+                        }
+                    ]
+                }
+            },
+            "dependsOn": [
+                "[resourceId('Microsoft.DesktopVirtualization/applicationgroups/', parameters('appGroupName'))]"
+            ]
+        },
+            {
+    "type": "Microsoft.DesktopVirtualization/hostpools/providers/diagnosticSettings",
+    "name": "[concat(parameters('hostpoolName'),'/microsoft.Insights/', variables('settingName'))]",
+    "dependsOn": ["[resourceId('Microsoft.DesktopVirtualization/hostpools', parameters('hostpoolName'))]"],
+     "apiVersion": "2017-05-01-preview",
+     "properties":{
+        "name": "[variables('settingName')]",
+        "workspaceId": "[parameters('workspaceId')]",
+        "logs": [
+        {
+          "category": "Checkpoint",
+          "enabled": true
+        },
+        {
+         "category": "Error",
+          "enabled": true
+        },
+        {
+         "category": "Management",
+          "enabled": true
+        },       
+        {
+         "category": "Connection",
+          "enabled": true
+        },       
+        {
+         "category": "HostRegistration",
+          "enabled": true
+        }
+         ]
+     }
+        },
+                    {
+    "type": "Microsoft.DesktopVirtualization/applicationgroups/providers/diagnosticSettings",
+    "name": "[concat(parameters('appGroupName'),'/microsoft.Insights/', variables('settingName'))]",
+    "dependsOn": ["[resourceId('Microsoft.DesktopVirtualization/applicationgroups', parameters('appGroupName'))]"],
+     "apiVersion": "2017-05-01-preview",
+     "properties":{
+        "name": "[variables('settingName')]",
+        "workspaceId": "[parameters('workspaceId')]",
+        "logs": [
+        {
+          "category": "Checkpoint",
+          "enabled": true
+        },
+        {
+         "category": "Error",
+          "enabled": true
+        },
+        {
+         "category": "Management",
+          "enabled": true
+        }
+         ]
+     }
+        }
+        
+    ],
+    "outputs": {
+        
+    }
+}

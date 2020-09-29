@@ -1,0 +1,83 @@
+parameters:
+  - name: personaId
+    displayName: Persona ID
+    type: string
+
+  - name: personaName
+    displayName: Persona Name
+    type: string
+
+  - name: image
+    displayName: Persona Image
+    type: string
+
+  - name: podId
+    displayName: Pod ID
+    type: string
+
+  - name: numberOfVMs
+    displayName: Number of VMs
+    type: number
+
+  - name: podDiscription
+    type: string
+
+  - name: podResourceGroup
+    type: string
+
+  - name: targetRegion
+    type: string
+
+  - name: targetContainer
+    type: string
+
+  - name: environment
+    displayName: Environment
+    type: string
+    default: WVD
+
+  - name: regionCode
+    type: string
+
+  - name: swapUsers
+    type: boolean
+    default: true
+
+stages:
+
+  - template: deploy-pod-stage.yml
+    parameters:
+      podId: ${{ parameters.podId }}
+      personaId: ${{ parameters.personaId }}
+      podResourceGroup: ${{ parameters.podResourceGroup }}
+      targetRegion: ${{ parameters.targetRegion }}
+      keyVaultName: ${{ format('{0}-KVL-{1}-{2}', parameters.environment, parameters.personaId, parameters.podId) }}
+      environment: ${{ parameters.environment }}
+      regionCode: ${{ parameters.regionCode }}
+
+  - template: deploy-host-pool-vms-stage.yml
+    parameters:
+      podId: ${{ parameters.podId }}
+      personaId: ${{ parameters.personaId }}
+      numberOfVMs: ${{ parameters.numberOfVMs }}
+      keyVaultName: ${{ format('{0}-KVL-{1}-{2}', parameters.environment, parameters.personaId, parameters.podId) }}
+      podResourceGroup: ${{ parameters.podResourceGroup }}
+      containerResourceGroup: ${{ format('{0}-{1}', parameters.podResourceGroup, parameters.targetContainer) }}
+      targetRegion: ${{ parameters.targetRegion }}
+      targetContainer: ${{ parameters.targetContainer }}
+
+  - ${{ if parameters.swapUsers }}:
+    - template: swap-users-stage.yml
+      parameters:
+        podId: ${{ parameters.podId }}
+        personaId: ${{ parameters.personaId }}
+        keyVaultName: ${{ format('{0}-KVL-{1}-{2}', parameters.environment, parameters.personaId, parameters.podId) }}
+        podResourceGroup: ${{ parameters.podResourceGroup }}
+        targetContainer: ${{ parameters.targetContainer }}
+
+    - template: destroy-host-group-stage.yml
+      parameters:
+        podId: ${{ parameters.podId }}
+        personaId: ${{ parameters.personaId }}
+        targetContainer: ${{ parameters.targetContainer }}
+        podResourceGroup: ${{ parameters.podResourceGroup }}

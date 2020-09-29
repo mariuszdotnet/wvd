@@ -1,0 +1,108 @@
+# Login to Azure CLI
+az login
+az account list --output table
+
+# NK- Visual Studio Ultimate with MSDN  AzureCloud   1965c25a-b7fd-48b5-a393-c9e785c1c4d9
+az account set --subscription 1965c25a-b7fd-48b5-a393-c9e785c1c4d9
+#az account set --subscription 5aec60e9-f535-4bd7-a951-2833f043e918
+
+# Resource group name - we are using myImageBuilderRG in this example
+imageResourceGroup=aib-wvd-vmpool-rg
+# Region location 
+location=eastus2
+# template URI
+uri="https://raw.githubusercontent.com/mariuszdotnet/azure-image-builder-wvd/master/arm-templates/compute-availabilitysets.json"
+uri="https://raw.githubusercontent.com/mariuszdotnet/azure-image-builder-wvd/master/arm-templates/network-publicipaddresses.json"
+uri="https://raw.githubusercontent.com/mariuszdotnet/azure-image-builder-wvd/master/arm-templates/network-networkinterfaces.json"
+uri="https://raw.githubusercontent.com/mariuszdotnet/azure-image-builder-wvd/master/arm-templates/compute-virtualmachines.json"
+echo $uri
+
+# Create the resource group
+az group create -n $imageResourceGroup -l $location
+
+az deployment group what-if --verbose --resource-group $imageResourceGroup --template-uri $uri --parameters use-public-ip='true'
+az deployment group create --verbose --resource-group $imageResourceGroup --template-uri $uri --parameters use-public-ip='true'
+
+az deployment group what-if --verbose --resource-group $imageResourceGroup --template-file compute-virtualmachines.json
+az deployment group create --verbose --resource-group $imageResourceGroup --template-file compute-virtualmachines.json
+az deployment group create --verbose --resource-group $imageResourceGroup --template-file compute-availabilitysets.json
+az deployment group what-if --verbose --resource-group $imageResourceGroup --template-uri $uri 
+
+az deployment group what-if --verbose --resource-group $imageResourceGroup --template-file extensions-jsonaddomainextension.json
+az deployment group create --verbose --resource-group $imageResourceGroup --template-file extensions-jsonaddomainextension.json
+
+az deployment group what-if --verbose --resource-group $imageResourceGroup --template-file extensions-dsc-addsessionhost.json
+az deployment group create --verbose --resource-group $imageResourceGroup --template-file extensions-dsc-addsessionhost.json
+
+subnetid="/subscriptions/1965c25a-b7fd-48b5-a393-c9e785c1c4d9/resourceGroups/aib-sig-rg/providers/Microsoft.Network/virtualNetworks/aib-proxyvm-vnet/subnets/default"
+
+subnetid="/subscriptions/1965c25a-b7fd-48b5-a393-c9e785c1c4d9/resourceGroups/Azureminilab-VNET/providers/Microsoft.Network/virtualNetworks/wvdspring-vnet/subnets/subnet1"
+
+# Create Image from existing image
+az feature register --namespace Microsoft.VirtualMachineImages --name VirtualMachineTemplatePreview
+az feature show --namespace Microsoft.VirtualMachineImages --name VirtualMachineTemplatePreview | grep state
+az provider show -n Microsoft.VirtualMachineImages | grep registrationState
+az provider show -n Microsoft.KeyVault | grep registrationState
+az provider show -n Microsoft.Compute | grep registrationState
+az provider show -n Microsoft.Storage | grep registrationState
+az provider register -n Microsoft.VirtualMachineImages
+az provider register -n Microsoft.Compute
+az provider register -n Microsoft.KeyVault
+az provider register -n Microsoft.Storage
+
+# Resource group name 
+sigResourceGroup=aib-sig-rg
+# Gallery location 
+location=eastus2
+# Additional region to replicate the image version to 
+additionalregion=canadacentral
+# Name of the shared image gallery 
+sigName=myIBSIG
+# Name of the image definition to use
+imageDefName=aibWin10365Image
+# image distribution metadata reference name
+runOutputName=aibWin10365ImageUpdate
+# Sub ID
+subscriptionID=1965c25a-b7fd-48b5-a393-c9e785c1c4d9
+
+echo $subnetid
+az deployment group what-if \
+--verbose \
+--resource-group $imageResourceGroup \
+--template-file main-template.json \
+--parameters subnet-id=$subnetid
+
+az deployment group create \
+--verbose \
+--resource-group $imageResourceGroup \
+--template-file main-template.json \
+--parameters subnet-id=$subnetid
+
+# Get the location, status and other information about the available image galleries
+az sig list -o table
+
+# List the image definitions in a gallery, including information about OS type and status
+az sig image-definition list --resource-group $sigResourceGroup --gallery-name $sigName -o table
+
+# List the shared image versions in a gallery
+az sig image-version list --resource-group $sigResourceGroup --gallery-name $sigName --gallery-image-definition aibWin10365Image -o table
+
+# Get the ID of an image version using
+az sig image-version show \
+   --resource-group $sigResourceGroup \
+   --gallery-name $sigName \
+   --gallery-image-definition aibWin10365Image \
+   --gallery-image-version 0.24294.62837 \
+   --query "id"
+
+az deployment group what-if \
+--verbose \
+--resource-group $imageResourceGroup \
+--template-file desktopvirtualization-hostpools.json
+
+echo $imageResourceGroup 
+
+az deployment group create \
+--verbose \
+--resource-group $imageResourceGroup \
+--template-file desktopvirtualization-hostpools.json

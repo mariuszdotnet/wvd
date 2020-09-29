@@ -1,0 +1,77 @@
+{
+    "$schema": "http://schema.management.azure.com/schemas/2014-04-01-preview/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "workspaceName": {
+            "type": "string"
+        },
+        "workspaceDescription": {
+            "type": "string",
+            "defaultValue": ""
+        },
+            "workspaceId": {
+            "type": "string"
+        },
+        "location": {
+            "type": "string",
+            "defaultValue": "eastus2"
+        },
+        "friendlyName": {
+            "type": "string",
+            "defaultValue": ""
+        },
+        "appGroups": {
+            "type": "array",
+            "defaultValue": []
+        },
+        "tags": {
+            "type": "object",
+            "defaultValue": {}
+        }
+    },
+        "variables": {
+        "settingName": "Send_to_LGA"
+    },
+    "resources": [
+        {
+            "name": "[parameters('workspaceName')]",
+            "apiVersion": "2019-12-10-preview",
+            "type": "Microsoft.DesktopVirtualization/workspaces",
+            "location": "[parameters('location')]",
+            "tags": "[parameters('tags')]",
+            "properties": {
+                "friendlyName": "[parameters('workspaceName')]",
+                "description": "[parameters('workspaceDescription')]",
+                "applicationGroupReferences": "[parameters('appGroups')]"
+            }
+        },
+                   {
+    "type": "microsoft.desktopvirtualization/workspaces/providers/diagnosticSettings",
+    "name": "[concat(parameters('workspaceName'),'/microsoft.insights/', variables('settingName'))]",
+    "dependsOn": ["[resourceId('Microsoft.DesktopVirtualization/workspaces', parameters('workspaceName'))]"],
+     "apiVersion": "2017-05-01-preview",
+     "properties":{
+        "name": "[variables('settingName')]",
+        "workspaceId": "[parameters('workspaceId')]",
+        "logs": [
+        {
+          "category": "Checkpoint",
+          "enabled": true
+        },
+        {
+         "category": "Error",
+          "enabled": true
+        },
+        {
+         "category": "Management",
+          "enabled": true
+        },       
+        {
+         "category": "Feed",
+          "enabled": true
+        }
+         ]
+     }
+        }
+    ]
+}

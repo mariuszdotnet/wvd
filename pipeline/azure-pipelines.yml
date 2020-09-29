@@ -1,0 +1,48 @@
+trigger:
+  - none
+
+pr:
+  - none
+
+pool:
+  name: Hosted Windows 2019 with VS2019
+  demands: azureps
+
+parameters:
+
+  - name: targetContainer
+    displayName: Target Host Container
+    type: string
+    values:
+      - BLUE
+      - GREEN
+
+  - name: image
+    displayName: Image
+    type: string
+    default: PR01-WIN10-1909-0620
+
+variables:
+  - template: vars.yml
+  - group: ${{ variables.personaId }}
+
+extends:
+  template: pipeline/wvd-pipeline.yml
+  parameters:
+    personaId: ${{ variables.personaId }}
+    personaName: $(personaName)
+    primaryRegion: canadacentral
+    primaryRegionCode: CACN
+    image: ${{ parameters.image }}
+    primaryKeyVault: $(primaryKeyVault)
+    primaryNetAppInstance: $(primaryNetAppInstance)
+    primaryNetAppCapacity: $(primaryNetAppCapacity)
+    primaryNetAppVolume: $(primaryNetAppVolume)
+    targetContainer: ${{ parameters.targetContainer }}
+    pods:
+      - podId: POD01
+        numberOfVMs: 10
+      - podId: POD02
+        numberOfVMs: 5
+      - podId: POD03
+        numberOfVMs: 3

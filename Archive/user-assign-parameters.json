@@ -1,0 +1,31 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentParameters.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "appGroupName": {
+            "value": "poolA-DAG"
+        },
+        "location": {
+            "value": "eastus2"
+        },
+        "roleAssignments": {
+            "value": [
+                {
+                    "name": "E95@azureminilab.com",
+                    "principalId": "7a968489-417d-4fec-813b-aa07e9e5e747"
+                },
+                {
+                    "name": "e01@azureminilab.com",
+                    "principalId": "e62eb52c-9974-4796-9a10-47d8e781e60b"
+                },
+                {
+                    "name": "ADSyncAdmins@azureminila.com",
+                    "principalId": "72853093-c270-4dbc-8312-7655aca9b5d0"
+                }
+            ]
+        },
+        "apiVersion": {
+            "value": "2019-12-10-preview"
+        }
+    }
+}
